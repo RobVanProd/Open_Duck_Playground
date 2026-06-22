@@ -54,6 +54,33 @@ class OpenDuckMiniV2Runner(BaseRunner):
 
         config.reward_config.scales.target_rate = args.target_rate_scale
         config.reward_config.scales.actuator_tracking = args.actuator_tracking_scale
+        reward_scale_overrides = {
+            "tracking_lin_vel": args.tracking_lin_vel_scale,
+            "tracking_ang_vel": args.tracking_ang_vel_scale,
+            "action_rate": args.action_rate_scale,
+            "stand_still": args.stand_still_scale,
+            "alive": args.alive_scale,
+            "imitation": args.imitation_scale,
+        }
+        for name, value in reward_scale_overrides.items():
+            if value is not None:
+                config.reward_config.scales[name] = value
+
+        command_range_overrides = {
+            "lin_vel_x": (args.lin_vel_x_min, args.lin_vel_x_max),
+            "lin_vel_y": (args.lin_vel_y_min, args.lin_vel_y_max),
+            "ang_vel_yaw": (args.ang_vel_yaw_min, args.ang_vel_yaw_max),
+        }
+        for name, (min_value, max_value) in command_range_overrides.items():
+            if min_value is not None or max_value is not None:
+                current_min, current_max = config[name]
+                config[name] = [
+                    current_min if min_value is None else min_value,
+                    current_max if max_value is None else max_value,
+                ]
+
+        if args.head_range_factor is not None:
+            config.head_range_factor = args.head_range_factor
         return config
 
 
@@ -110,6 +137,54 @@ def main() -> None:
             "value to penalize the cost; positive values reward it. Default "
             "keeps behavior unchanged."
         ),
+    )
+    parser.add_argument(
+        "--tracking_lin_vel_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.tracking_lin_vel.",
+    )
+    parser.add_argument(
+        "--tracking_ang_vel_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.tracking_ang_vel.",
+    )
+    parser.add_argument(
+        "--action_rate_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.action_rate.",
+    )
+    parser.add_argument(
+        "--stand_still_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.stand_still.",
+    )
+    parser.add_argument(
+        "--alive_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.alive.",
+    )
+    parser.add_argument(
+        "--imitation_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.imitation.",
+    )
+    parser.add_argument("--lin_vel_x_min", type=float, default=None)
+    parser.add_argument("--lin_vel_x_max", type=float, default=None)
+    parser.add_argument("--lin_vel_y_min", type=float, default=None)
+    parser.add_argument("--lin_vel_y_max", type=float, default=None)
+    parser.add_argument("--ang_vel_yaw_min", type=float, default=None)
+    parser.add_argument("--ang_vel_yaw_max", type=float, default=None)
+    parser.add_argument(
+        "--head_range_factor",
+        type=float,
+        default=None,
+        help="Optional override for sampled head command range multiplier.",
     )
     parser.add_argument("--ppo_num_envs", type=int, default=None)
     parser.add_argument("--ppo_num_evals", type=int, default=None)
