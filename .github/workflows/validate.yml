@@ -1,0 +1,26 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/**
+
+jobs:
+  static-checks:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Playground package
+        run: python3 -m compileall -q playground
