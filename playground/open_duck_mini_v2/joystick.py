@@ -34,6 +34,7 @@ from playground.common.poly_reference_motion import PolyReferenceMotion
 from playground.common.rewards import (
     reward_tracking_lin_vel,
     reward_tracking_ang_vel,
+    reward_forward_progress,
     cost_torques,
     cost_action_rate,
     cost_stand_still,
@@ -93,10 +94,12 @@ def default_config() -> config_dict.ConfigDict:
                 stand_still=-0.2,  # was -1.0 TODO try to relax this a bit ?
                 target_rate=0.0,
                 actuator_tracking=0.0,
+                forward_progress=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
             tracking_sigma=0.01,  # was working at 0.01
+            forward_progress_deadband=0.02,
         ),
         push_config=config_dict.create(
             enable=True,
@@ -787,6 +790,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 info["command"],
                 self.get_gyro(data),
                 self._config.reward_config.tracking_sigma,
+            ),
+            "forward_progress": reward_forward_progress(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_progress_deadband,
             ),
             # "orientation": cost_orientation(self.get_gravity(data)),
             "torques": cost_torques(data.actuator_force),

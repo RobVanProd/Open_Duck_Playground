@@ -31,6 +31,19 @@ def reward_tracking_ang_vel(
     return jp.nan_to_num(jp.exp(-ang_vel_error / tracking_sigma))
 
 
+def reward_forward_progress(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    progress_ratio = jp.clip(signed_speed / target_speed, 0.0, 1.0)
+    return jp.nan_to_num(jp.where(needs_progress, progress_ratio, 0.0))
+
+
 # Base-related rewards.
 
 

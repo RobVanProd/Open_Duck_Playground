@@ -57,6 +57,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
         reward_scale_overrides = {
             "tracking_lin_vel": args.tracking_lin_vel_scale,
             "tracking_ang_vel": args.tracking_ang_vel_scale,
+            "forward_progress": args.forward_progress_scale,
             "action_rate": args.action_rate_scale,
             "stand_still": args.stand_still_scale,
             "alive": args.alive_scale,
@@ -65,6 +66,13 @@ class OpenDuckMiniV2Runner(BaseRunner):
         for name, value in reward_scale_overrides.items():
             if value is not None:
                 config.reward_config.scales[name] = value
+
+        if args.tracking_sigma is not None:
+            config.reward_config.tracking_sigma = args.tracking_sigma
+        if args.forward_progress_deadband is not None:
+            config.reward_config.forward_progress_deadband = (
+                args.forward_progress_deadband
+            )
 
         command_range_overrides = {
             "lin_vel_x": (args.lin_vel_x_min, args.lin_vel_x_max),
@@ -149,6 +157,24 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional override for reward_config.scales.tracking_ang_vel.",
+    )
+    parser.add_argument(
+        "--tracking_sigma",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.tracking_sigma.",
+    )
+    parser.add_argument(
+        "--forward_progress_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.forward_progress.",
+    )
+    parser.add_argument(
+        "--forward_progress_deadband",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.forward_progress_deadband.",
     )
     parser.add_argument(
         "--action_rate_scale",
