@@ -37,6 +37,7 @@ from playground.common.rewards import (
     reward_forward_progress,
     cost_torques,
     cost_action_rate,
+    cost_action_magnitude,
     cost_stand_still,
     reward_alive,
 )
@@ -91,6 +92,7 @@ def default_config() -> config_dict.ConfigDict:
                 tracking_ang_vel=6.0,
                 torques=-1.0e-3,
                 action_rate=-0.5,  # was -1.5
+                action_magnitude=0.0,
                 stand_still=-0.2,  # was -1.0 TODO try to relax this a bit ?
                 target_rate=0.0,
                 actuator_tracking=0.0,
@@ -801,6 +803,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             # "orientation": cost_orientation(self.get_gravity(data)),
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(action, info["last_act"]),
+            "action_magnitude": cost_action_magnitude(action),
             "target_rate": info["target_velocity_cost"],
             "actuator_tracking": info["actuator_bridge_tracking_cost"],
             "alive": reward_alive(),

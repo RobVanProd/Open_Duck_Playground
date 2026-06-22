@@ -59,6 +59,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "tracking_ang_vel": args.tracking_ang_vel_scale,
             "forward_progress": args.forward_progress_scale,
             "action_rate": args.action_rate_scale,
+            "action_magnitude": args.action_magnitude_scale,
             "stand_still": args.stand_still_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
@@ -185,6 +186,12 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional override for reward_config.scales.action_rate.",
+    )
+    parser.add_argument(
+        "--action_magnitude_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.action_magnitude.",
     )
     parser.add_argument(
         "--stand_still_scale",

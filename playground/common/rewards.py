@@ -92,6 +92,10 @@ def cost_action_rate(act: jax.Array, last_act: jax.Array) -> jax.Array:
     return c1
 
 
+def cost_action_magnitude(act: jax.Array) -> jax.Array:
+    return jp.nan_to_num(jp.sum(jp.square(act)))
+
+
 # Other rewards.
 
 

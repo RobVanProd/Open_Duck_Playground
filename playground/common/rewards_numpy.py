@@ -67,6 +67,10 @@ def cost_action_rate(act, last_act):
     return c1
 
 
+def cost_action_magnitude(act):
+    return np.nan_to_num(np.sum(np.square(act)))
+
+
 # Other rewards.
 
 
