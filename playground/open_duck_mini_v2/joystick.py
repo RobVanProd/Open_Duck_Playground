@@ -336,6 +336,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 else:
                     metrics[f"cost/{k}"] = jp.zeros(())
         metrics["swing_peak"] = jp.zeros(())
+        metrics["diagnostic/target_velocity_cost"] = jp.zeros(())
+        metrics["diagnostic/actuator_bridge_tracking_cost"] = jp.zeros(())
+        metrics["diagnostic/actuator_bridge_delay_ticks"] = jp.zeros(())
+        metrics["diagnostic/actuator_bridge_tau_mean_s"] = jp.zeros(())
+        metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -601,6 +606,21 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 else:
                     state.metrics[f"cost/{k}"] = -v
         state.metrics["swing_peak"] = jp.mean(state.info["swing_peak"])
+        state.metrics["diagnostic/target_velocity_cost"] = state.info[
+            "target_velocity_cost"
+        ]
+        state.metrics["diagnostic/actuator_bridge_tracking_cost"] = state.info[
+            "actuator_bridge_tracking_cost"
+        ]
+        state.metrics["diagnostic/actuator_bridge_delay_ticks"] = state.info[
+            "actuator_bridge_delay_ticks"
+        ].astype(reward.dtype)
+        state.metrics["diagnostic/actuator_bridge_tau_mean_s"] = jp.mean(
+            state.info["actuator_bridge_tau_s"]
+        )
+        state.metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.mean(
+            state.info["actuator_bridge_velocity_limit_rad_s"]
+        )
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
