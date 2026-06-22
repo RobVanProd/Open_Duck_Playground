@@ -99,6 +99,20 @@ class BaseRunner(ABC):
         else:
             network_factory = ppo_networks.make_ppo_networks
         self.ppo_training_params["num_timesteps"] = self.num_timesteps
+        ppo_cli_overrides = {
+            "num_envs": getattr(self.args, "ppo_num_envs", None),
+            "num_evals": getattr(self.args, "ppo_num_evals", None),
+            "episode_length": getattr(self.args, "ppo_episode_length", None),
+            "unroll_length": getattr(self.args, "ppo_unroll_length", None),
+            "batch_size": getattr(self.args, "ppo_batch_size", None),
+            "num_minibatches": getattr(self.args, "ppo_num_minibatches", None),
+            "num_updates_per_batch": getattr(
+                self.args, "ppo_num_updates_per_batch", None
+            ),
+        }
+        for key, value in ppo_cli_overrides.items():
+            if value is not None:
+                self.ppo_training_params[key] = value
         print(f"PPO params: {self.ppo_training_params}")
 
         train_fn = functools.partial(
