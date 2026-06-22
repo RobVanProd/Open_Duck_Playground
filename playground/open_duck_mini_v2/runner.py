@@ -95,13 +95,21 @@ def main() -> None:
         "--target_rate_scale",
         type=float,
         default=0.0,
-        help="Reward scale for target velocity cost; default keeps behavior unchanged",
+        help=(
+            "Scale applied to the target velocity cost. Use a negative value "
+            "to penalize the cost; positive values reward it. Default keeps "
+            "behavior unchanged."
+        ),
     )
     parser.add_argument(
         "--actuator_tracking_scale",
         type=float,
         default=0.0,
-        help="Reward scale for sent-vs-applied target cost; default keeps behavior unchanged",
+        help=(
+            "Scale applied to the sent-vs-applied target cost. Use a negative "
+            "value to penalize the cost; positive values reward it. Default "
+            "keeps behavior unchanged."
+        ),
     )
     parser.add_argument("--ppo_num_envs", type=int, default=None)
     parser.add_argument("--ppo_num_evals", type=int, default=None)
