@@ -89,6 +89,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
 
         if args.head_range_factor is not None:
             config.head_range_factor = args.head_range_factor
+        if args.command_resample_steps is not None:
+            config.command_resample_steps = args.command_resample_steps
+        if args.zero_command_probability is not None:
+            config.zero_command_probability = args.zero_command_probability
         return config
 
 
@@ -206,6 +210,18 @@ def main() -> None:
     parser.add_argument("--lin_vel_y_max", type=float, default=None)
     parser.add_argument("--ang_vel_yaw_min", type=float, default=None)
     parser.add_argument("--ang_vel_yaw_max", type=float, default=None)
+    parser.add_argument(
+        "--command_resample_steps",
+        type=int,
+        default=None,
+        help="Optional override for command resampling interval in env steps.",
+    )
+    parser.add_argument(
+        "--zero_command_probability",
+        type=float,
+        default=None,
+        help="Optional override for probability of sampling an all-zero command.",
+    )
     parser.add_argument(
         "--head_range_factor",
         type=float,

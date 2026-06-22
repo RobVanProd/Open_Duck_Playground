@@ -109,6 +109,8 @@ def default_config() -> config_dict.ConfigDict:
         lin_vel_x=[-0.15, 0.15],
         lin_vel_y=[-0.2, 0.2],
         ang_vel_yaw=[-1.0, 1.0],  # [-1.0, 1.0]
+        command_resample_steps=500,
+        zero_command_probability=0.1,
         neck_pitch_range=[-0.34, 1.1],
         head_pitch_range=[-0.78, 0.78],
         head_yaw_range=[-1.5, 1.5],
@@ -589,12 +591,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         # state.info["last_act"] = motor_targets  # became
         state.info["rng"], cmd_rng = jax.random.split(state.info["rng"])
         state.info["command"] = jp.where(
-            state.info["step"] > 500,
+            state.info["step"] > self._config.command_resample_steps,
             self.sample_command(cmd_rng),
             state.info["command"],
         )
         state.info["step"] = jp.where(
-            done | (state.info["step"] > 500),
+            done | (state.info["step"] > self._config.command_resample_steps),
             0,
             state.info["step"],
         )
@@ -863,9 +865,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             maxval=self._config.head_roll_range[1] * self._config.head_range_factor,
         )
 
-        # With 10% chance, set everything to zero.
+        # Keep the historical 10% zero-command curriculum by default, but let
+        # bridge experiments disable it without changing normal training.
         return jp.where(
-            jax.random.bernoulli(rng4, p=0.1),
+            jax.random.bernoulli(rng4, p=self._config.zero_command_probability),
             jp.zeros(7),
             jp.hstack(
                 [
