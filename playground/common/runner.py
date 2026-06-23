@@ -109,6 +109,10 @@ class BaseRunner(ABC):
             "num_updates_per_batch": getattr(
                 self.args, "ppo_num_updates_per_batch", None
             ),
+            "learning_rate": getattr(self.args, "ppo_learning_rate", None),
+            "entropy_cost": getattr(self.args, "ppo_entropy_cost", None),
+            "clipping_epsilon": getattr(self.args, "ppo_clipping_epsilon", None),
+            "max_grad_norm": getattr(self.args, "ppo_max_grad_norm", None),
         }
         for key, value in ppo_cli_overrides.items():
             if value is not None:

@@ -64,6 +64,8 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "action_rate": args.action_rate_scale,
             "action_magnitude": args.action_magnitude_scale,
             "stand_still": args.stand_still_scale,
+            "orientation": args.orientation_scale,
+            "base_height": args.base_height_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -328,6 +330,18 @@ def main() -> None:
         help="Optional override for reward_config.scales.stand_still.",
     )
     parser.add_argument(
+        "--orientation_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.orientation.",
+    )
+    parser.add_argument(
+        "--base_height_scale",
+        type=float,
+        default=None,
+        help="Optional override for reward_config.scales.base_height.",
+    )
+    parser.add_argument(
         "--alive_scale",
         type=float,
         default=None,
@@ -370,6 +384,10 @@ def main() -> None:
     parser.add_argument("--ppo_batch_size", type=int, default=None)
     parser.add_argument("--ppo_num_minibatches", type=int, default=None)
     parser.add_argument("--ppo_num_updates_per_batch", type=int, default=None)
+    parser.add_argument("--ppo_learning_rate", type=float, default=None)
+    parser.add_argument("--ppo_entropy_cost", type=float, default=None)
+    parser.add_argument("--ppo_clipping_epsilon", type=float, default=None)
+    parser.add_argument("--ppo_max_grad_norm", type=float, default=None)
     # parser.add_argument(
     #     "--debug", action="store_true", help="Run in debug mode with minimal parameters"
     # )
