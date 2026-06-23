@@ -58,6 +58,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "tracking_lin_vel": args.tracking_lin_vel_scale,
             "tracking_ang_vel": args.tracking_ang_vel_scale,
             "forward_progress": args.forward_progress_scale,
+            "forward_shortfall": args.forward_shortfall_scale,
             "action_rate": args.action_rate_scale,
             "action_magnitude": args.action_magnitude_scale,
             "stand_still": args.stand_still_scale,
@@ -73,6 +74,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
         if args.forward_progress_deadband is not None:
             config.reward_config.forward_progress_deadband = (
                 args.forward_progress_deadband
+            )
+        if args.forward_shortfall_required_ratio is not None:
+            config.reward_config.forward_shortfall_required_ratio = (
+                args.forward_shortfall_required_ratio
             )
 
         command_range_overrides = {
@@ -176,10 +181,26 @@ def main() -> None:
         help="Optional override for reward_config.scales.forward_progress.",
     )
     parser.add_argument(
+        "--forward_shortfall_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_shortfall. "
+            "Use a negative value to penalize failing to reach the configured "
+            "fraction of commanded forward speed."
+        ),
+    )
+    parser.add_argument(
         "--forward_progress_deadband",
         type=float,
         default=None,
         help="Optional override for reward_config.forward_progress_deadband.",
+    )
+    parser.add_argument(
+        "--forward_shortfall_required_ratio",
+        type=float,
+        default=None,
+        help="Optional required fraction of command_x for forward_shortfall.",
     )
     parser.add_argument(
         "--action_rate_scale",

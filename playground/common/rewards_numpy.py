@@ -25,6 +25,31 @@ def reward_tracking_ang_vel(commands, ang_vel, tracking_sigma):
     return np.nan_to_num(np.exp(-ang_vel_error / tracking_sigma))
 
 
+def reward_forward_progress(commands, local_vel, deadband=0.02):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    progress_ratio = np.clip(signed_speed / target_speed, 0.0, 1.0)
+    return np.nan_to_num(np.where(needs_progress, progress_ratio, 0.0))
+
+
+def cost_forward_shortfall(
+    commands,
+    local_vel,
+    required_ratio=0.5,
+    deadband=0.02,
+):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    required_speed = target_speed * required_ratio
+    shortfall = np.clip(required_speed - signed_speed, 0.0, None)
+    normalized_shortfall = shortfall / target_speed
+    return np.nan_to_num(np.where(needs_progress, np.square(normalized_shortfall), 0.0))
+
+
 # Base-related rewards.
 
 

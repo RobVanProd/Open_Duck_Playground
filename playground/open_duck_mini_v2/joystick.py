@@ -35,6 +35,7 @@ from playground.common.rewards import (
     reward_tracking_lin_vel,
     reward_tracking_ang_vel,
     reward_forward_progress,
+    cost_forward_shortfall,
     cost_torques,
     cost_action_rate,
     cost_action_magnitude,
@@ -97,11 +98,13 @@ def default_config() -> config_dict.ConfigDict:
                 target_rate=0.0,
                 actuator_tracking=0.0,
                 forward_progress=0.0,
+                forward_shortfall=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
             tracking_sigma=0.01,  # was working at 0.01
             forward_progress_deadband=0.02,
+            forward_shortfall_required_ratio=0.5,
         ),
         push_config=config_dict.create(
             enable=True,
@@ -798,6 +801,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "forward_progress": reward_forward_progress(
                 info["command"],
                 self.get_local_linvel(data),
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_shortfall": cost_forward_shortfall(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_shortfall_required_ratio,
                 self._config.reward_config.forward_progress_deadband,
             ),
             # "orientation": cost_orientation(self.get_gravity(data)),

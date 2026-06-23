@@ -44,6 +44,23 @@ def reward_forward_progress(
     return jp.nan_to_num(jp.where(needs_progress, progress_ratio, 0.0))
 
 
+def cost_forward_shortfall(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    required_ratio: float = 0.5,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize standing still when a nonzero forward command is active."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    required_speed = target_speed * required_ratio
+    shortfall = jp.clip(required_speed - signed_speed, 0.0, None)
+    normalized_shortfall = shortfall / target_speed
+    return jp.nan_to_num(jp.where(needs_progress, jp.square(normalized_shortfall), 0.0))
+
+
 # Base-related rewards.
 
 
