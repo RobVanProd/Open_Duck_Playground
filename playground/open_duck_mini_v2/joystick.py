@@ -41,6 +41,7 @@ from playground.common.rewards import (
     cost_action_magnitude,
     cost_stand_still,
     reward_alive,
+    pseudo_huber_cost,
 )
 from playground.open_duck_mini_v2.custom_rewards import reward_imitation
 
@@ -109,6 +110,12 @@ def default_config() -> config_dict.ConfigDict:
             forward_shortfall_required_ratio=0.5,
             command_progress_required_ratio=0.6,
             command_progress_warmup_steps=50,
+            action_rate_huber_delta=0.0,
+            action_magnitude_huber_delta=0.0,
+            target_rate_huber_delta=0.0,
+            actuator_tracking_huber_delta=0.0,
+            forward_shortfall_huber_delta=0.0,
+            command_progress_shortfall_huber_delta=0.0,
         ),
         push_config=config_dict.create(
             enable=True,
@@ -492,7 +499,14 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             jp.where(needs_progress, progress_ratio, 0.0)
         )
         info["command_progress_shortfall_cost"] = jp.nan_to_num(
-            jp.where(needs_progress & warm_enough, jp.square(normalized_shortfall), 0.0)
+            jp.where(
+                needs_progress & warm_enough,
+                pseudo_huber_cost(
+                    normalized_shortfall,
+                    self._config.reward_config.command_progress_shortfall_huber_delta,
+                ),
+                0.0,
+            )
         )
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
@@ -601,9 +615,16 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             applied_motor_targets, _ = self._apply_actuator_bridge(
                 state.info, sent_motor_targets
             )
-        state.info["target_velocity_cost"] = jp.mean(jp.square(target_velocity))
+        state.info["target_velocity_cost"] = jp.mean(
+            pseudo_huber_cost(
+                target_velocity, self._config.reward_config.target_rate_huber_delta
+            )
+        )
         state.info["actuator_bridge_tracking_cost"] = jp.mean(
-            jp.square(sent_motor_targets - applied_motor_targets)
+            pseudo_huber_cost(
+                sent_motor_targets - applied_motor_targets,
+                self._config.reward_config.actuator_tracking_huber_delta,
+            )
         )
         data = mjx_env.step(
             self.mjx_model, state.data, applied_motor_targets, self.n_substeps
@@ -879,13 +900,20 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self.get_local_linvel(data),
                 self._config.reward_config.forward_shortfall_required_ratio,
                 self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_shortfall_huber_delta,
             ),
             "command_progress": info["command_progress_ratio"],
             "command_progress_shortfall": info["command_progress_shortfall_cost"],
             # "orientation": cost_orientation(self.get_gravity(data)),
             "torques": cost_torques(data.actuator_force),
-            "action_rate": cost_action_rate(action, info["last_act"]),
-            "action_magnitude": cost_action_magnitude(action),
+            "action_rate": cost_action_rate(
+                action,
+                info["last_act"],
+                self._config.reward_config.action_rate_huber_delta,
+            ),
+            "action_magnitude": cost_action_magnitude(
+                action, self._config.reward_config.action_magnitude_huber_delta
+            ),
             "target_rate": info["target_velocity_cost"],
             "actuator_tracking": info["actuator_bridge_tracking_cost"],
             "alive": reward_alive(),

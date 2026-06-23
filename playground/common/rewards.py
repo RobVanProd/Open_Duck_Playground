@@ -7,6 +7,14 @@ import jax
 import jax.numpy as jp
 
 
+def pseudo_huber_cost(error: jax.Array, delta: float) -> jax.Array:
+    """Quadratic near zero and linear for large residuals."""
+    if delta <= 0.0:
+        return jp.square(error)
+    scaled = error / delta
+    return jp.square(delta) * (jp.sqrt(1.0 + jp.square(scaled)) - 1.0)
+
+
 # Tracking rewards.
 def reward_tracking_lin_vel(
     commands: jax.Array,
@@ -49,6 +57,7 @@ def cost_forward_shortfall(
     local_vel: jax.Array,
     required_ratio: float = 0.5,
     deadband: float = 0.02,
+    huber_delta: float = 0.0,
 ) -> jax.Array:
     """Penalize standing still when a nonzero forward command is active."""
     command_x = commands[0]
@@ -58,7 +67,9 @@ def cost_forward_shortfall(
     required_speed = target_speed * required_ratio
     shortfall = jp.clip(required_speed - signed_speed, 0.0, None)
     normalized_shortfall = shortfall / target_speed
-    return jp.nan_to_num(jp.where(needs_progress, jp.square(normalized_shortfall), 0.0))
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(normalized_shortfall, huber_delta), 0.0)
+    )
 
 
 # Base-related rewards.
@@ -104,13 +115,15 @@ def cost_energy(qvel: jax.Array, qfrc_actuator: jax.Array) -> jax.Array:
     return jp.nan_to_num(jp.sum(jp.abs(qvel) * jp.abs(qfrc_actuator)))
 
 
-def cost_action_rate(act: jax.Array, last_act: jax.Array) -> jax.Array:
-    c1 = jp.nan_to_num(jp.sum(jp.square(act - last_act)))
+def cost_action_rate(
+    act: jax.Array, last_act: jax.Array, huber_delta: float = 0.0
+) -> jax.Array:
+    c1 = jp.nan_to_num(jp.sum(pseudo_huber_cost(act - last_act, huber_delta)))
     return c1
 
 
-def cost_action_magnitude(act: jax.Array) -> jax.Array:
-    return jp.nan_to_num(jp.sum(jp.square(act)))
+def cost_action_magnitude(act: jax.Array, huber_delta: float = 0.0) -> jax.Array:
+    return jp.nan_to_num(jp.sum(pseudo_huber_cost(act, huber_delta)))
 
 
 # Other rewards.

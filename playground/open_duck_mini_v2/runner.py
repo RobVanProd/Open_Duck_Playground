@@ -89,6 +89,19 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.command_progress_warmup_steps = (
                 args.command_progress_warmup_steps
             )
+        reward_huber_overrides = {
+            "action_rate_huber_delta": args.action_rate_huber_delta,
+            "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
+            "target_rate_huber_delta": args.target_rate_huber_delta,
+            "actuator_tracking_huber_delta": args.actuator_tracking_huber_delta,
+            "forward_shortfall_huber_delta": args.forward_shortfall_huber_delta,
+            "command_progress_shortfall_huber_delta": (
+                args.command_progress_shortfall_huber_delta
+            ),
+        }
+        for name, value in reward_huber_overrides.items():
+            if value is not None:
+                config.reward_config[name] = value
 
         command_range_overrides = {
             "lin_vel_x": (args.lin_vel_x_min, args.lin_vel_x_max),
@@ -241,6 +254,60 @@ def main() -> None:
         type=int,
         default=None,
         help="Optional warmup steps before command_progress_shortfall is applied.",
+    )
+    parser.add_argument(
+        "--action_rate_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for action-rate cost. Default keeps "
+            "the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--action_magnitude_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for action-magnitude cost. Default "
+            "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--target_rate_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for target-rate cost. Default keeps "
+            "the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--actuator_tracking_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for actuator tracking cost. Default "
+            "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--forward_shortfall_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward shortfall cost. Default "
+            "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--command_progress_shortfall_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for command-window shortfall cost. "
+            "Default keeps the existing squared cost."
+        ),
     )
     parser.add_argument(
         "--action_rate_scale",
