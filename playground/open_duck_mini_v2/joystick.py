@@ -99,12 +99,16 @@ def default_config() -> config_dict.ConfigDict:
                 actuator_tracking=0.0,
                 forward_progress=0.0,
                 forward_shortfall=0.0,
+                command_progress=0.0,
+                command_progress_shortfall=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
             tracking_sigma=0.01,  # was working at 0.01
             forward_progress_deadband=0.02,
             forward_shortfall_required_ratio=0.5,
+            command_progress_required_ratio=0.6,
+            command_progress_warmup_steps=50,
         ),
         push_config=config_dict.create(
             enable=True,
@@ -320,6 +324,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "actuator_bridge_velocity_limit_rad_s": bridge_velocity_limit_rad_s,
             "actuator_bridge_tracking_cost": jp.zeros(()),
             "target_velocity_cost": jp.zeros(()),
+            "command_progress_distance": jp.zeros(()),
+            "command_progress_steps": jp.zeros((), dtype=jp.int32),
+            "command_progress_ratio": jp.zeros(()),
+            "command_progress_shortfall_cost": jp.zeros(()),
             "feet_air_time": jp.zeros(2),
             "last_contact": jp.zeros(2, dtype=bool),
             "swing_peak": jp.zeros(2),
@@ -351,6 +359,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/actuator_bridge_delay_ticks"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_tau_mean_s"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
+        metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
+        metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -445,6 +455,45 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         info["actuator_bridge_target_history"] = history
         info["actuator_bridge_applied_targets"] = applied_target
         return applied_target, info
+
+    def _update_command_window_progress(
+        self, info: dict[str, Any], data: mjx.Data
+    ) -> None:
+        """Track cumulative signed forward progress over the current command."""
+        command_x = info["command"][0]
+        local_vx = self.get_local_linvel(data)[0]
+        signed_vx = local_vx * jp.sign(command_x)
+        info["command_progress_distance"] += signed_vx * self.dt
+        info["command_progress_steps"] += 1
+
+        elapsed_s = jp.maximum(
+            info["command_progress_steps"].astype(jp.float32) * self.dt,
+            self.dt,
+        )
+        target_distance = jp.maximum(jp.abs(command_x) * elapsed_s, 1.0e-6)
+        progress_ratio = info["command_progress_distance"] / target_distance
+
+        needs_progress = (
+            jp.abs(command_x) > self._config.reward_config.forward_progress_deadband
+        )
+        warm_enough = (
+            info["command_progress_steps"]
+            >= self._config.reward_config.command_progress_warmup_steps
+        )
+        required_distance = (
+            target_distance * self._config.reward_config.command_progress_required_ratio
+        )
+        shortfall = jp.clip(
+            required_distance - info["command_progress_distance"], 0.0, None
+        )
+        normalized_shortfall = shortfall / target_distance
+
+        info["command_progress_ratio"] = jp.nan_to_num(
+            jp.where(needs_progress, progress_ratio, 0.0)
+        )
+        info["command_progress_shortfall_cost"] = jp.nan_to_num(
+            jp.where(needs_progress & warm_enough, jp.square(normalized_shortfall), 0.0)
+        )
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
 
@@ -560,6 +609,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             self.mjx_model, state.data, applied_motor_targets, self.n_substeps
         )
 
+        self._update_command_window_progress(state.info, data)
         state.info["motor_targets"] = sent_motor_targets
 
         contact = jp.array(
@@ -595,15 +645,30 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.info["last_act"] = action  # was
         # state.info["last_act"] = motor_targets  # became
         state.info["rng"], cmd_rng = jax.random.split(state.info["rng"])
+        reset_command_window = done | (
+            state.info["step"] > self._config.command_resample_steps
+        )
         state.info["command"] = jp.where(
-            state.info["step"] > self._config.command_resample_steps,
+            reset_command_window,
             self.sample_command(cmd_rng),
             state.info["command"],
         )
         state.info["step"] = jp.where(
-            done | (state.info["step"] > self._config.command_resample_steps),
+            reset_command_window,
             0,
             state.info["step"],
+        )
+        state.info["command_progress_distance"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_distance"]
+        )
+        state.info["command_progress_steps"] = jp.where(
+            reset_command_window, 0, state.info["command_progress_steps"]
+        )
+        state.info["command_progress_ratio"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_ratio"]
+        )
+        state.info["command_progress_shortfall_cost"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_shortfall_cost"]
         )
         state.info["feet_air_time"] *= ~contact
         state.info["last_contact"] = contact
@@ -631,6 +696,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.mean(
             state.info["actuator_bridge_velocity_limit_rad_s"]
         )
+        state.metrics["diagnostic/command_progress_ratio"] = state.info[
+            "command_progress_ratio"
+        ]
+        state.metrics["diagnostic/command_progress_shortfall_cost"] = state.info[
+            "command_progress_shortfall_cost"
+        ]
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
@@ -809,6 +880,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self._config.reward_config.forward_shortfall_required_ratio,
                 self._config.reward_config.forward_progress_deadband,
             ),
+            "command_progress": info["command_progress_ratio"],
+            "command_progress_shortfall": info["command_progress_shortfall_cost"],
             # "orientation": cost_orientation(self.get_gravity(data)),
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(action, info["last_act"]),

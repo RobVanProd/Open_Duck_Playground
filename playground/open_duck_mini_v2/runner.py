@@ -59,6 +59,8 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "tracking_ang_vel": args.tracking_ang_vel_scale,
             "forward_progress": args.forward_progress_scale,
             "forward_shortfall": args.forward_shortfall_scale,
+            "command_progress": args.command_progress_scale,
+            "command_progress_shortfall": args.command_progress_shortfall_scale,
             "action_rate": args.action_rate_scale,
             "action_magnitude": args.action_magnitude_scale,
             "stand_still": args.stand_still_scale,
@@ -78,6 +80,14 @@ class OpenDuckMiniV2Runner(BaseRunner):
         if args.forward_shortfall_required_ratio is not None:
             config.reward_config.forward_shortfall_required_ratio = (
                 args.forward_shortfall_required_ratio
+            )
+        if args.command_progress_required_ratio is not None:
+            config.reward_config.command_progress_required_ratio = (
+                args.command_progress_required_ratio
+            )
+        if args.command_progress_warmup_steps is not None:
+            config.reward_config.command_progress_warmup_steps = (
+                args.command_progress_warmup_steps
             )
 
         command_range_overrides = {
@@ -201,6 +211,36 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional required fraction of command_x for forward_shortfall.",
+    )
+    parser.add_argument(
+        "--command_progress_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.command_progress. "
+            "Rewards cumulative signed forward progress over a command window."
+        ),
+    )
+    parser.add_argument(
+        "--command_progress_shortfall_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.command_progress_shortfall. "
+            "Use a negative value to penalize low cumulative command progress."
+        ),
+    )
+    parser.add_argument(
+        "--command_progress_required_ratio",
+        type=float,
+        default=None,
+        help="Optional required cumulative command progress ratio.",
+    )
+    parser.add_argument(
+        "--command_progress_warmup_steps",
+        type=int,
+        default=None,
+        help="Optional warmup steps before command_progress_shortfall is applied.",
     )
     parser.add_argument(
         "--action_rate_scale",
