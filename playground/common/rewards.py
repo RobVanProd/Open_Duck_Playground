@@ -72,6 +72,30 @@ def cost_forward_shortfall(
     )
 
 
+def cost_forward_overshoot(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    allowed_ratio: float = 1.5,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize moving much faster than the active forward command."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    allowed_speed = target_speed * allowed_ratio
+    overshoot = jp.clip(signed_speed - allowed_speed, 0.0, None)
+    normalized_overshoot = overshoot / target_speed
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_overshoot, huber_delta),
+            0.0,
+        )
+    )
+
+
 # Base-related rewards.
 
 
@@ -89,6 +113,32 @@ def cost_orientation(torso_zaxis: jax.Array) -> jax.Array:
 
 def cost_base_height(base_height: jax.Array, base_height_target: float) -> jax.Array:
     return jp.nan_to_num(jp.square(base_height - base_height_target))
+
+
+def cost_forward_pitch(
+    commands: jax.Array,
+    gravity: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize pitch-like gravity tilt only while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(gravity[0], huber_delta), 0.0)
+    )
+
+
+def cost_forward_pitch_rate(
+    commands: jax.Array,
+    gyro: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize pitch-rate-like gyro motion during forward-command rollouts."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(gyro[1], huber_delta), 0.0)
+    )
 
 
 def reward_base_y_swing(

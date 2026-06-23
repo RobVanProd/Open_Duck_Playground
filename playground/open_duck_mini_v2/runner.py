@@ -59,6 +59,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "tracking_ang_vel": args.tracking_ang_vel_scale,
             "forward_progress": args.forward_progress_scale,
             "forward_shortfall": args.forward_shortfall_scale,
+            "forward_overshoot": args.forward_overshoot_scale,
             "command_progress": args.command_progress_scale,
             "command_progress_shortfall": args.command_progress_shortfall_scale,
             "action_rate": args.action_rate_scale,
@@ -66,6 +67,8 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "stand_still": args.stand_still_scale,
             "orientation": args.orientation_scale,
             "base_height": args.base_height_scale,
+            "forward_pitch": args.forward_pitch_scale,
+            "forward_pitch_rate": args.forward_pitch_rate_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -83,6 +86,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_shortfall_required_ratio = (
                 args.forward_shortfall_required_ratio
             )
+        if args.forward_overshoot_allowed_ratio is not None:
+            config.reward_config.forward_overshoot_allowed_ratio = (
+                args.forward_overshoot_allowed_ratio
+            )
         if args.command_progress_required_ratio is not None:
             config.reward_config.command_progress_required_ratio = (
                 args.command_progress_required_ratio
@@ -97,6 +104,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "target_rate_huber_delta": args.target_rate_huber_delta,
             "actuator_tracking_huber_delta": args.actuator_tracking_huber_delta,
             "forward_shortfall_huber_delta": args.forward_shortfall_huber_delta,
+            "forward_overshoot_huber_delta": args.forward_overshoot_huber_delta,
+            "forward_pitch_huber_delta": args.forward_pitch_huber_delta,
+            "forward_pitch_rate_huber_delta": args.forward_pitch_rate_huber_delta,
             "command_progress_shortfall_huber_delta": (
                 args.command_progress_shortfall_huber_delta
             ),
@@ -228,6 +238,22 @@ def main() -> None:
         help="Optional required fraction of command_x for forward_shortfall.",
     )
     parser.add_argument(
+        "--forward_overshoot_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_overshoot. "
+            "Use a negative value to penalize moving faster than the configured "
+            "command ratio."
+        ),
+    )
+    parser.add_argument(
+        "--forward_overshoot_allowed_ratio",
+        type=float,
+        default=None,
+        help="Optional allowed local forward speed ratio before overshoot cost starts.",
+    )
+    parser.add_argument(
         "--command_progress_scale",
         type=float,
         default=None,
@@ -303,6 +329,33 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_overshoot_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward overshoot cost. Default "
+            "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--forward_pitch_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward-command pitch cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--forward_pitch_rate_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward-command pitch-rate cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--command_progress_shortfall_huber_delta",
         type=float,
         default=None,
@@ -340,6 +393,24 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional override for reward_config.scales.base_height.",
+    )
+    parser.add_argument(
+        "--forward_pitch_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_pitch. Use a "
+            "negative value to penalize forward-command pitch tilt."
+        ),
+    )
+    parser.add_argument(
+        "--forward_pitch_rate_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_pitch_rate. Use "
+            "a negative value to penalize forward-command pitch-rate motion."
+        ),
     )
     parser.add_argument(
         "--alive_scale",
