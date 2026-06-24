@@ -96,6 +96,30 @@ def cost_forward_overshoot(
     )
 
 
+def cost_forward_wrong_direction(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    allowed_reverse_ratio: float = 0.1,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize moving opposite the active forward command."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    allowed_reverse_speed = -target_speed * allowed_reverse_ratio
+    wrong_direction = jp.clip(allowed_reverse_speed - signed_speed, 0.0, None)
+    normalized_wrong_direction = wrong_direction / target_speed
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_wrong_direction, huber_delta),
+            0.0,
+        )
+    )
+
+
 # Base-related rewards.
 
 
@@ -139,6 +163,25 @@ def cost_forward_pitch_rate(
     return jp.nan_to_num(
         jp.where(needs_progress, pseudo_huber_cost(gyro[1], huber_delta), 0.0)
     )
+
+
+def cost_forward_contact_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+    no_contact_weight: float = 1.0,
+    asymmetry_weight: float = 0.0,
+) -> jax.Array:
+    """Penalize unsupported or optionally one-sided support under forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    no_contact = contact_count < 0.5
+    one_sided = jp.abs(contact[0].astype(jp.float32) - contact[1].astype(jp.float32))
+    cost = (
+        no_contact_weight * no_contact.astype(jp.float32)
+        + asymmetry_weight * one_sided
+    )
+    return jp.nan_to_num(jp.where(needs_progress, cost, 0.0))
 
 
 def reward_base_y_swing(

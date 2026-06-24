@@ -60,6 +60,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_progress": args.forward_progress_scale,
             "forward_shortfall": args.forward_shortfall_scale,
             "forward_overshoot": args.forward_overshoot_scale,
+            "forward_wrong_direction": args.forward_wrong_direction_scale,
             "command_progress": args.command_progress_scale,
             "command_progress_shortfall": args.command_progress_shortfall_scale,
             "action_rate": args.action_rate_scale,
@@ -69,6 +70,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "base_height": args.base_height_scale,
             "forward_pitch": args.forward_pitch_scale,
             "forward_pitch_rate": args.forward_pitch_rate_scale,
+            "forward_contact_support": args.forward_contact_support_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -90,6 +92,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_overshoot_allowed_ratio = (
                 args.forward_overshoot_allowed_ratio
             )
+        if args.forward_wrong_direction_allowed_reverse_ratio is not None:
+            config.reward_config.forward_wrong_direction_allowed_reverse_ratio = (
+                args.forward_wrong_direction_allowed_reverse_ratio
+            )
         if args.command_progress_required_ratio is not None:
             config.reward_config.command_progress_required_ratio = (
                 args.command_progress_required_ratio
@@ -98,6 +104,14 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.command_progress_warmup_steps = (
                 args.command_progress_warmup_steps
             )
+        if args.forward_contact_support_no_contact_weight is not None:
+            config.reward_config.forward_contact_support_no_contact_weight = (
+                args.forward_contact_support_no_contact_weight
+            )
+        if args.forward_contact_support_asymmetry_weight is not None:
+            config.reward_config.forward_contact_support_asymmetry_weight = (
+                args.forward_contact_support_asymmetry_weight
+            )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
             "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
@@ -105,6 +119,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "actuator_tracking_huber_delta": args.actuator_tracking_huber_delta,
             "forward_shortfall_huber_delta": args.forward_shortfall_huber_delta,
             "forward_overshoot_huber_delta": args.forward_overshoot_huber_delta,
+            "forward_wrong_direction_huber_delta": (
+                args.forward_wrong_direction_huber_delta
+            ),
             "forward_pitch_huber_delta": args.forward_pitch_huber_delta,
             "forward_pitch_rate_huber_delta": args.forward_pitch_rate_huber_delta,
             "command_progress_shortfall_huber_delta": (
@@ -254,6 +271,21 @@ def main() -> None:
         help="Optional allowed local forward speed ratio before overshoot cost starts.",
     )
     parser.add_argument(
+        "--forward_wrong_direction_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_wrong_direction. "
+            "Use a negative value to penalize reverse motion under a forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_wrong_direction_allowed_reverse_ratio",
+        type=float,
+        default=None,
+        help="Optional tolerated reverse-speed ratio before wrong-direction cost starts.",
+    )
+    parser.add_argument(
         "--command_progress_scale",
         type=float,
         default=None,
@@ -338,6 +370,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_wrong_direction_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for wrong-direction cost. Default "
+            "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--forward_pitch_huber_delta",
         type=float,
         default=None,
@@ -411,6 +452,28 @@ def main() -> None:
             "Optional override for reward_config.scales.forward_pitch_rate. Use "
             "a negative value to penalize forward-command pitch-rate motion."
         ),
+    )
+    parser.add_argument(
+        "--forward_contact_support_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_contact_support. "
+            "Use a negative value to penalize unsupported contacts under a "
+            "forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_contact_support_no_contact_weight",
+        type=float,
+        default=None,
+        help="Optional weight for no-foot-contact support cost.",
+    )
+    parser.add_argument(
+        "--forward_contact_support_asymmetry_weight",
+        type=float,
+        default=None,
+        help="Optional weight for one-sided support cost.",
     )
     parser.add_argument(
         "--alive_scale",
