@@ -63,6 +63,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_wrong_direction": args.forward_wrong_direction_scale,
             "command_progress": args.command_progress_scale,
             "command_progress_shortfall": args.command_progress_shortfall_scale,
+            "command_progress_failure": args.command_progress_failure_scale,
             "action_rate": args.action_rate_scale,
             "action_magnitude": args.action_magnitude_scale,
             "stand_still": args.stand_still_scale,
@@ -114,6 +115,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.command_progress_failure_warmup_steps = (
                 args.command_progress_failure_warmup_steps
             )
+        if args.reward_clip_min is not None:
+            config.reward_config.reward_clip_min = args.reward_clip_min
+        if args.reward_clip_max is not None:
+            config.reward_config.reward_clip_max = args.reward_clip_max
         if args.forward_contact_support_no_contact_weight is not None:
             config.reward_config.forward_contact_support_no_contact_weight = (
                 args.forward_contact_support_no_contact_weight
@@ -314,6 +319,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--command_progress_failure_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.command_progress_failure. "
+            "Use a negative value with --reward_clip_min below zero to make "
+            "command-progress termination carry a signed penalty."
+        ),
+    )
+    parser.add_argument(
         "--command_progress_required_ratio",
         type=float,
         default=None,
@@ -344,6 +359,18 @@ def main() -> None:
         type=int,
         default=None,
         help="Warmup steps before command-progress failure can terminate an episode.",
+    )
+    parser.add_argument(
+        "--reward_clip_min",
+        type=float,
+        default=None,
+        help="Optional lower bound for per-step clipped reward.",
+    )
+    parser.add_argument(
+        "--reward_clip_max",
+        type=float,
+        default=None,
+        help="Optional upper bound for per-step clipped reward.",
     )
     parser.add_argument(
         "--action_rate_huber_delta",

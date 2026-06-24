@@ -111,6 +111,7 @@ def default_config() -> config_dict.ConfigDict:
                 forward_wrong_direction=0.0,
                 command_progress=0.0,
                 command_progress_shortfall=0.0,
+                command_progress_failure=0.0,
                 orientation=0.0,
                 base_height=0.0,
                 forward_pitch=0.0,
@@ -129,6 +130,8 @@ def default_config() -> config_dict.ConfigDict:
             command_progress_failure_enable=False,
             command_progress_failure_min_ratio=0.25,
             command_progress_failure_warmup_steps=120,
+            reward_clip_min=0.0,
+            reward_clip_max=10000.0,
             forward_contact_support_no_contact_weight=1.0,
             forward_contact_support_asymmetry_weight=0.0,
             action_rate_huber_delta=0.0,
@@ -360,6 +363,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "command_progress_steps": jp.zeros((), dtype=jp.int32),
             "command_progress_ratio": jp.zeros(()),
             "command_progress_shortfall_cost": jp.zeros(()),
+            "command_progress_failure": jp.zeros(()),
             "feet_air_time": jp.zeros(2),
             "last_contact": jp.zeros(2, dtype=bool),
             "swing_peak": jp.zeros(2),
@@ -689,6 +693,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         obs = self._get_obs(data, state.info, contact)
         done = self._get_termination(data)
         command_progress_failure = self._get_command_progress_failure(state.info)
+        state.info["command_progress_failure"] = command_progress_failure.astype(
+            state.info["command_progress_ratio"].dtype
+        )
         done = done | command_progress_failure
 
         rewards = self._get_reward(
@@ -698,7 +705,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         rewards = {
             k: v * self._config.reward_config.scales[k] for k, v in rewards.items()
         }
-        reward = jp.clip(sum(rewards.values()) * self.dt, 0.0, 10000.0)
+        reward = jp.clip(
+            sum(rewards.values()) * self.dt,
+            self._config.reward_config.reward_clip_min,
+            self._config.reward_config.reward_clip_max,
+        )
         # jax.debug.print('STEP REWARD: {}',reward)
         state.info["push"] = push
         state.info["step"] += 1
@@ -963,6 +974,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             ),
             "command_progress": info["command_progress_ratio"],
             "command_progress_shortfall": info["command_progress_shortfall_cost"],
+            "command_progress_failure": info["command_progress_failure"],
             "orientation": cost_orientation(self.get_gravity(data)),
             "base_height": cost_base_height(
                 data.qpos[self._floating_base_qpos_addr + 2],
