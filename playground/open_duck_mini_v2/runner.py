@@ -104,6 +104,16 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.command_progress_warmup_steps = (
                 args.command_progress_warmup_steps
             )
+        if args.command_progress_failure_enable:
+            config.reward_config.command_progress_failure_enable = True
+        if args.command_progress_failure_min_ratio is not None:
+            config.reward_config.command_progress_failure_min_ratio = (
+                args.command_progress_failure_min_ratio
+            )
+        if args.command_progress_failure_warmup_steps is not None:
+            config.reward_config.command_progress_failure_warmup_steps = (
+                args.command_progress_failure_warmup_steps
+            )
         if args.forward_contact_support_no_contact_weight is not None:
             config.reward_config.forward_contact_support_no_contact_weight = (
                 args.forward_contact_support_no_contact_weight
@@ -314,6 +324,26 @@ def main() -> None:
         type=int,
         default=None,
         help="Optional warmup steps before command_progress_shortfall is applied.",
+    )
+    parser.add_argument(
+        "--command_progress_failure_enable",
+        action="store_true",
+        help=(
+            "Terminate positive-command episodes after warmup when cumulative "
+            "command progress remains below the configured floor. Default off."
+        ),
+    )
+    parser.add_argument(
+        "--command_progress_failure_min_ratio",
+        type=float,
+        default=None,
+        help="Minimum cumulative command progress ratio before failure triggers.",
+    )
+    parser.add_argument(
+        "--command_progress_failure_warmup_steps",
+        type=int,
+        default=None,
+        help="Warmup steps before command-progress failure can terminate an episode.",
     )
     parser.add_argument(
         "--action_rate_huber_delta",

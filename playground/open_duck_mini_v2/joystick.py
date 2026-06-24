@@ -126,6 +126,9 @@ def default_config() -> config_dict.ConfigDict:
             forward_wrong_direction_allowed_reverse_ratio=0.1,
             command_progress_required_ratio=0.6,
             command_progress_warmup_steps=50,
+            command_progress_failure_enable=False,
+            command_progress_failure_min_ratio=0.25,
+            command_progress_failure_warmup_steps=120,
             forward_contact_support_no_contact_weight=1.0,
             forward_contact_support_asymmetry_weight=0.0,
             action_rate_huber_delta=0.0,
@@ -390,6 +393,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
         metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
         metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
+        metrics["diagnostic/command_progress_failure"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -531,6 +535,20 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             )
         )
 
+    def _get_command_progress_failure(self, info: dict[str, Any]) -> jax.Array:
+        """Default-off termination for positive-command no-progress episodes."""
+        cfg = self._config.reward_config
+        command_x = info["command"][0]
+        enabled = jp.asarray(cfg.command_progress_failure_enable)
+        needs_progress = jp.abs(command_x) > cfg.forward_progress_deadband
+        warm_enough = (
+            info["command_progress_steps"] >= cfg.command_progress_failure_warmup_steps
+        )
+        below_floor = (
+            info["command_progress_ratio"] < cfg.command_progress_failure_min_ratio
+        )
+        return enabled & needs_progress & warm_enough & below_floor
+
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
 
         if USE_IMITATION_REWARD:
@@ -670,6 +688,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
 
         obs = self._get_obs(data, state.info, contact)
         done = self._get_termination(data)
+        command_progress_failure = self._get_command_progress_failure(state.info)
+        done = done | command_progress_failure
 
         rewards = self._get_reward(
             data, action, state.info, state.metrics, done, first_contact, contact
@@ -745,6 +765,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/command_progress_shortfall_cost"] = state.info[
             "command_progress_shortfall_cost"
         ]
+        state.metrics["diagnostic/command_progress_failure"] = (
+            command_progress_failure.astype(reward.dtype)
+        )
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
