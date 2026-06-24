@@ -188,6 +188,16 @@ def main() -> None:
         help="Resume training from this checkpoint",
     )
     parser.add_argument(
+        "--export_min_step",
+        type=int,
+        default=0,
+        help=(
+            "Skip checkpoint/ONNX export callbacks before this PPO step. "
+            "Use a value above 0 for cloud training runs where step-0 export "
+            "can destabilize the GPU process."
+        ),
+    )
+    parser.add_argument(
         "--enable_actuator_bridge",
         action="store_true",
         help="Enable the default-off actuator delay/lag/velocity-limit bridge",

@@ -1,8 +1,15 @@
-
+import os
 import tensorflow as tf
 from tensorflow.keras import layers
 import tf2onnx
 import numpy as np
+
+if os.environ.get("OPEN_DUCK_TF_EXPORT_ALLOW_GPU", "0") != "1":
+    try:
+        tf.config.set_visible_devices([], "GPU")
+    except RuntimeError as exc:
+        print(f"TensorFlow GPU visibility already initialized: {exc}")
+
 
 def export_onnx(
     params, act_size, ppo_params, obs_size, output_path="ONNX.onnx"

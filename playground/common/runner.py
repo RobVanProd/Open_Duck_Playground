@@ -67,6 +67,13 @@ class BaseRunner(ABC):
 
     def policy_params_fn(self, current_step, make_policy, params):
         # save checkpoints
+        export_min_step = getattr(self.args, "export_min_step", 0)
+        if current_step < export_min_step:
+            print(
+                f"Skipping checkpoint/export at step {current_step}; "
+                f"export_min_step={export_min_step}"
+            )
+            return
 
         orbax_checkpointer = ocp.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(params)
