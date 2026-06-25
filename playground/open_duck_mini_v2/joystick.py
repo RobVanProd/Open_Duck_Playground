@@ -45,6 +45,8 @@ from playground.common.rewards import (
     cost_forward_contact_support,
     reward_forward_single_support,
     cost_forward_double_support,
+    reward_forward_contact_transition,
+    cost_forward_double_support_dwell,
     cost_torques,
     cost_action_rate,
     cost_action_magnitude,
@@ -130,6 +132,8 @@ def default_config() -> config_dict.ConfigDict:
                 forward_contact_support=0.0,
                 forward_single_support=0.0,
                 forward_double_support=0.0,
+                forward_contact_transition=0.0,
+                forward_double_support_dwell=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
@@ -147,6 +151,8 @@ def default_config() -> config_dict.ConfigDict:
             reward_clip_max=10000.0,
             forward_contact_support_no_contact_weight=1.0,
             forward_contact_support_asymmetry_weight=0.0,
+            forward_contact_transition_min_progress_ratio=0.25,
+            forward_double_support_dwell_grace_steps=10,
             action_rate_huber_delta=0.0,
             action_magnitude_huber_delta=0.0,
             target_rate_huber_delta=0.0,
@@ -379,6 +385,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "command_progress_ratio": jp.zeros(()),
             "command_progress_shortfall_cost": jp.zeros(()),
             "command_progress_failure": jp.zeros(()),
+            "forward_double_support_steps": jp.zeros((), dtype=jp.int32),
             "feet_air_time": jp.zeros(2),
             "last_contact": jp.zeros(2, dtype=bool),
             "swing_peak": jp.zeros(2),
@@ -415,6 +422,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
         metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
+        metrics["diagnostic/forward_double_support_steps"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -700,6 +708,16 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 for geom_id in self._feet_geom_id
             ]
         )
+        needs_forward_progress = (
+            jp.abs(state.info["command"][0])
+            > self._config.reward_config.forward_progress_deadband
+        )
+        double_support = jp.sum(contact.astype(jp.float32)) > 1.5
+        state.info["forward_double_support_steps"] = jp.where(
+            needs_forward_progress & double_support,
+            state.info["forward_double_support_steps"] + 1,
+            0,
+        )
         contact_filt = contact | state.info["last_contact"]
         first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt
         state.info["feet_air_time"] += self.dt
@@ -761,6 +779,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.info["command_progress_shortfall_cost"] = jp.where(
             reset_command_window, 0.0, state.info["command_progress_shortfall_cost"]
         )
+        state.info["forward_double_support_steps"] = jp.where(
+            reset_command_window, 0, state.info["forward_double_support_steps"]
+        )
         state.info["feet_air_time"] *= ~contact
         state.info["last_contact"] = contact
         state.info["swing_peak"] *= ~contact
@@ -800,6 +821,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/command_progress_failure"] = (
             command_progress_failure.astype(reward.dtype)
         )
+        state.metrics["diagnostic/forward_double_support_steps"] = state.info[
+            "forward_double_support_steps"
+        ].astype(reward.dtype)
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
@@ -1053,6 +1077,19 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "forward_double_support": cost_forward_double_support(
                 info["command"],
                 contact,
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_contact_transition": reward_forward_contact_transition(
+                info["command"],
+                first_contact,
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_contact_transition_min_progress_ratio,
+            ),
+            "forward_double_support_dwell": cost_forward_double_support_dwell(
+                info["command"],
+                info["forward_double_support_steps"],
+                self._config.reward_config.forward_double_support_dwell_grace_steps,
                 self._config.reward_config.forward_progress_deadband,
             ),
             "torques": cost_torques(data.actuator_force),

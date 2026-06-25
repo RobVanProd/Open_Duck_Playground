@@ -208,6 +208,43 @@ def cost_forward_double_support(
     return jp.nan_to_num(jp.where(needs_progress, double_support.astype(jp.float32), 0.0))
 
 
+def reward_forward_contact_transition(
+    commands: jax.Array,
+    first_contact: jax.Array,
+    local_vel: jax.Array,
+    deadband: float = 0.02,
+    min_progress_ratio: float = 0.25,
+) -> jax.Array:
+    """Reward a landing transition only when it coincides with forward progress."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    progress_ratio = signed_speed / target_speed
+    has_forward_progress = progress_ratio >= min_progress_ratio
+    any_first_contact = jp.any(first_contact).astype(jp.float32)
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress & has_forward_progress,
+            any_first_contact * jp.clip(progress_ratio, 0.0, 1.0),
+            0.0,
+        )
+    )
+
+
+def cost_forward_double_support_dwell(
+    commands: jax.Array,
+    double_support_steps: jax.Array,
+    grace_steps: int = 10,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize prolonged double support during a forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    grace = jp.maximum(jp.asarray(grace_steps, dtype=jp.float32), 1.0)
+    excess = jp.clip(double_support_steps.astype(jp.float32) - grace, 0.0, None)
+    return jp.nan_to_num(jp.where(needs_progress, excess / grace, 0.0))
+
+
 def reward_base_y_swing(
     base_y_speed: jax.Array,
     freq: float,

@@ -95,6 +95,8 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_contact_support": args.forward_contact_support_scale,
             "forward_single_support": args.forward_single_support_scale,
             "forward_double_support": args.forward_double_support_scale,
+            "forward_contact_transition": args.forward_contact_transition_scale,
+            "forward_double_support_dwell": args.forward_double_support_dwell_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -149,6 +151,14 @@ class OpenDuckMiniV2Runner(BaseRunner):
         if args.forward_contact_support_asymmetry_weight is not None:
             config.reward_config.forward_contact_support_asymmetry_weight = (
                 args.forward_contact_support_asymmetry_weight
+            )
+        if args.forward_contact_transition_min_progress_ratio is not None:
+            config.reward_config.forward_contact_transition_min_progress_ratio = (
+                args.forward_contact_transition_min_progress_ratio
+            )
+        if args.forward_double_support_dwell_grace_steps is not None:
+            config.reward_config.forward_double_support_dwell_grace_steps = (
+                args.forward_double_support_dwell_grace_steps
             )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
@@ -607,6 +617,41 @@ def main() -> None:
             "Use a negative value to penalize double-support dwell under a "
             "forward command."
         ),
+    )
+    parser.add_argument(
+        "--forward_contact_transition_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_contact_transition. "
+            "Use a positive value to reward landing transitions that occur with "
+            "body-frame forward progress."
+        ),
+    )
+    parser.add_argument(
+        "--forward_contact_transition_min_progress_ratio",
+        type=float,
+        default=None,
+        help=(
+            "Minimum command-normalized forward speed required for a contact "
+            "transition reward."
+        ),
+    )
+    parser.add_argument(
+        "--forward_double_support_dwell_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_double_support_dwell. "
+            "Use a negative value to penalize prolonged double support under a "
+            "forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_double_support_dwell_grace_steps",
+        type=int,
+        default=None,
+        help="Number of forward-command double-support steps allowed before dwell cost grows.",
     )
     parser.add_argument(
         "--alive_scale",
