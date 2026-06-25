@@ -95,6 +95,14 @@ def default_config() -> config_dict.ConfigDict:
             velocity_limit_max_rad_s=4.7,
             per_joint_variation=0.15,
         ),
+        soft_prior=config_dict.create(
+            enable=False,
+            joint_indices=[2, 3, 4, 11, 12, 13],
+            action_mean=[],
+            period=50,
+            phase_source="imitation_i",
+            huber_delta=0.05,
+        ),
         reward_config=config_dict.create(
             scales=config_dict.create(
                 tracking_lin_vel=2.5,
@@ -105,6 +113,7 @@ def default_config() -> config_dict.ConfigDict:
                 stand_still=-0.2,  # was -1.0 TODO try to relax this a bit ?
                 target_rate=0.0,
                 actuator_tracking=0.0,
+                soft_prior=0.0,
                 forward_progress=0.0,
                 forward_shortfall=0.0,
                 forward_overshoot=0.0,
@@ -359,6 +368,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "actuator_bridge_velocity_limit_rad_s": bridge_velocity_limit_rad_s,
             "actuator_bridge_tracking_cost": jp.zeros(()),
             "target_velocity_cost": jp.zeros(()),
+            "soft_prior_cost": jp.zeros(()),
+            "soft_prior_phase": jp.zeros((), dtype=jp.int32),
             "command_progress_distance": jp.zeros(()),
             "command_progress_steps": jp.zeros((), dtype=jp.int32),
             "command_progress_ratio": jp.zeros(()),
@@ -395,6 +406,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/actuator_bridge_delay_ticks"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_tau_mean_s"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
+        metrics["diagnostic/soft_prior_cost"] = jp.zeros(())
+        metrics["diagnostic/soft_prior_phase"] = jp.zeros(())
         metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
         metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
@@ -770,6 +783,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.mean(
             state.info["actuator_bridge_velocity_limit_rad_s"]
         )
+        state.metrics["diagnostic/soft_prior_cost"] = state.info["soft_prior_cost"]
+        state.metrics["diagnostic/soft_prior_phase"] = state.info[
+            "soft_prior_phase"
+        ].astype(reward.dtype)
         state.metrics["diagnostic/command_progress_ratio"] = state.info[
             "command_progress_ratio"
         ]
@@ -923,6 +940,27 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "privileged_state": privileged_state,
         }
 
+
+    def _get_soft_prior_cost(
+        self, action: jax.Array, info: dict[str, Any]
+    ) -> tuple[jax.Array, jax.Array]:
+        """Return default-off pitch-chain soft-prior cost and phase index."""
+        cfg = self._config.soft_prior
+        if not cfg.enable or len(cfg.action_mean) == 0:
+            return jp.zeros(()), jp.zeros((), dtype=jp.int32)
+
+        action_mean = jp.asarray(cfg.action_mean, dtype=action.dtype)
+        joint_indices = jp.asarray(cfg.joint_indices, dtype=jp.int32)
+        period = action_mean.shape[0]
+        if cfg.phase_source == "step":
+            phase = jp.mod(info["step"], period).astype(jp.int32)
+        else:
+            phase = jp.mod(info["imitation_i"], period).astype(jp.int32)
+        prior_action = action_mean[phase]
+        action_subset = jp.take(action, joint_indices)
+        cost = jp.mean(pseudo_huber_cost(action_subset - prior_action, cfg.huber_delta))
+        return cost, phase
+
     def _get_reward(
         self,
         data: mjx.Data,
@@ -934,6 +972,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         contact: jax.Array,
     ) -> dict[str, jax.Array]:
         del metrics  # Unused.
+
+        soft_prior_cost, soft_prior_phase = self._get_soft_prior_cost(action, info)
+        info["soft_prior_cost"] = soft_prior_cost
+        info["soft_prior_phase"] = soft_prior_phase
 
         ret = {
             "tracking_lin_vel": reward_tracking_lin_vel(
@@ -1010,6 +1052,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             ),
             "target_rate": info["target_velocity_cost"],
             "actuator_tracking": info["actuator_bridge_tracking_cost"],
+            "soft_prior": info["soft_prior_cost"],
             "alive": reward_alive(),
             "imitation": reward_imitation(  # FIXME, this reward is so adhoc...
                 self.get_floating_base_qpos(data.qpos),  # floating base qpos
