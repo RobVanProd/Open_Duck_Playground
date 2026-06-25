@@ -184,6 +184,30 @@ def cost_forward_contact_support(
     return jp.nan_to_num(jp.where(needs_progress, cost, 0.0))
 
 
+def reward_forward_single_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Reward exactly one support foot while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    single_support = jp.abs(contact_count - 1.0) < 0.5
+    return jp.nan_to_num(jp.where(needs_progress, single_support.astype(jp.float32), 0.0))
+
+
+def cost_forward_double_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize double-support dwell while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    double_support = contact_count > 1.5
+    return jp.nan_to_num(jp.where(needs_progress, double_support.astype(jp.float32), 0.0))
+
+
 def reward_base_y_swing(
     base_y_speed: jax.Array,
     freq: float,

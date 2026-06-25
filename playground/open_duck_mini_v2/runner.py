@@ -93,6 +93,8 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_pitch": args.forward_pitch_scale,
             "forward_pitch_rate": args.forward_pitch_rate_scale,
             "forward_contact_support": args.forward_contact_support_scale,
+            "forward_single_support": args.forward_single_support_scale,
+            "forward_double_support": args.forward_double_support_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -585,6 +587,26 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional weight for one-sided support cost.",
+    )
+    parser.add_argument(
+        "--forward_single_support_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_single_support. "
+            "Use a positive value to reward exactly one support foot under a "
+            "forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_double_support_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_double_support. "
+            "Use a negative value to penalize double-support dwell under a "
+            "forward command."
+        ),
     )
     parser.add_argument(
         "--alive_scale",
