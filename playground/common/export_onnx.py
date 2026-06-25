@@ -1,28 +1,20 @@
 import os
+import tensorflow as tf
+from tensorflow.keras import layers
+import tf2onnx
 import numpy as np
 
-
-def _load_tensorflow_for_export():
-    """Load TensorFlow lazily so JAX can own the training GPU first."""
-    if os.environ.get("OPEN_DUCK_TF_EXPORT_ALLOW_GPU", "0") != "1":
-        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
-    import tensorflow as tf
-    from tensorflow.keras import layers
-    import tf2onnx
-
-    if os.environ.get("OPEN_DUCK_TF_EXPORT_ALLOW_GPU", "0") != "1":
-        try:
-            tf.config.set_visible_devices([], "GPU")
-        except RuntimeError as exc:
-            print(f"TensorFlow GPU visibility already initialized: {exc}")
-    return tf, layers, tf2onnx
+if os.environ.get("OPEN_DUCK_TF_EXPORT_ALLOW_GPU", "0") != "1":
+    try:
+        tf.config.set_visible_devices([], "GPU")
+    except RuntimeError as exc:
+        print(f"TensorFlow GPU visibility already initialized: {exc}")
 
 
 def export_onnx(
     params, act_size, ppo_params, obs_size, output_path="ONNX.onnx"
 ):
     print(" === EXPORT ONNX === ")
-    tf, layers, tf2onnx = _load_tensorflow_for_export()
 
     # inference_fn = make_inference_fn(params, deterministic=True)
 
