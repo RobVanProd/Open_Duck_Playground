@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
+
 from playground.common import randomize
 from playground.common.runner import BaseRunner
 from playground.open_duck_mini_v2 import joystick, standing
@@ -72,6 +74,42 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.soft_prior.joint_indices = joint_indices
             config.soft_prior.period = int(prior.get("window_len") or len(action_mean))
             config.reward_config.scales.soft_prior = args.soft_prior_scale
+
+        if args.enable_behavior_prior:
+            if not hasattr(config, "behavior_prior"):
+                raise ValueError("Selected env config does not expose behavior_prior")
+            if args.behavior_prior_mlp_npz is None:
+                raise ValueError("--enable_behavior_prior requires --behavior_prior_mlp_npz")
+            payload = np.load(Path(args.behavior_prior_mlp_npz), allow_pickle=False)
+            if "norm" not in payload.files:
+                raise ValueError("behavior-prior NPZ missing norm array")
+            norm = payload["norm"].astype(np.float32)
+            if norm.shape[0] != 2:
+                raise ValueError(f"behavior-prior norm must have shape [2, obs], got {norm.shape}")
+            weights = []
+            biases = []
+            index = 0
+            while f"w{index}" in payload.files:
+                weights.append(payload[f"w{index}"].astype(np.float32).tolist())
+                biases.append(payload[f"b{index}"].astype(np.float32).tolist())
+                index += 1
+            if not weights:
+                raise ValueError("behavior-prior NPZ contains no w*/b* layers")
+            activation = str(payload["activation"][0]) if "activation" in payload.files else "tanh"
+            output_mode = str(payload["output_mode"][0]) if "output_mode" in payload.files else "clip"
+            if activation not in {"tanh", "swish"}:
+                raise ValueError(f"unsupported behavior-prior activation {activation!r}")
+            if output_mode not in {"clip", "ppo_tanh_loc"}:
+                raise ValueError(f"unsupported behavior-prior output_mode {output_mode!r}")
+            config.behavior_prior.enable = True
+            config.behavior_prior.obs_mean = norm[0].tolist()
+            config.behavior_prior.obs_std = norm[1].tolist()
+            config.behavior_prior.weights = weights
+            config.behavior_prior.biases = biases
+            config.behavior_prior.activation = activation
+            config.behavior_prior.output_mode = output_mode
+            config.behavior_prior.huber_delta = args.behavior_prior_huber_delta
+            config.reward_config.scales.behavior_prior = args.behavior_prior_scale
 
         config.reward_config.scales.target_rate = args.target_rate_scale
         config.reward_config.scales.actuator_tracking = args.actuator_tracking_scale
@@ -269,6 +307,24 @@ def main() -> None:
         choices=["imitation_i", "step"],
         default="imitation_i",
     )
+    parser.add_argument(
+        "--enable_behavior_prior",
+        action="store_true",
+        help="Enable default-off state-conditioned frozen-MLP behavior prior.",
+    )
+    parser.add_argument(
+        "--behavior_prior_mlp_npz",
+        type=str,
+        default=None,
+        help="MLP NPZ with norm and w*/b* arrays for the behavior-prior teacher.",
+    )
+    parser.add_argument(
+        "--behavior_prior_scale",
+        type=float,
+        default=-0.05,
+        help="Reward scale for behavior_prior cost. Use a negative value to penalize.",
+    )
+    parser.add_argument("--behavior_prior_huber_delta", type=float, default=0.05)
     parser.add_argument(
         "--target_rate_scale",
         type=float,

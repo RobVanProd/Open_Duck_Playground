@@ -107,6 +107,16 @@ def default_config() -> config_dict.ConfigDict:
             phase_source="imitation_i",
             huber_delta=0.05,
         ),
+        behavior_prior=config_dict.create(
+            enable=False,
+            obs_mean=[],
+            obs_std=[],
+            weights=[],
+            biases=[],
+            activation="tanh",
+            output_mode="clip",
+            huber_delta=0.05,
+        ),
         reward_config=config_dict.create(
             scales=config_dict.create(
                 tracking_lin_vel=2.5,
@@ -118,6 +128,7 @@ def default_config() -> config_dict.ConfigDict:
                 target_rate=0.0,
                 actuator_tracking=0.0,
                 soft_prior=0.0,
+                behavior_prior=0.0,
                 forward_progress=0.0,
                 forward_shortfall=0.0,
                 forward_overshoot=0.0,
@@ -380,6 +391,8 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "target_velocity_cost": jp.zeros(()),
             "soft_prior_cost": jp.zeros(()),
             "soft_prior_phase": jp.zeros((), dtype=jp.int32),
+            "behavior_prior_cost": jp.zeros(()),
+            "behavior_prior_obs": jp.zeros(101),
             "command_progress_distance": jp.zeros(()),
             "command_progress_steps": jp.zeros((), dtype=jp.int32),
             "command_progress_ratio": jp.zeros(()),
@@ -419,6 +432,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
         metrics["diagnostic/soft_prior_cost"] = jp.zeros(())
         metrics["diagnostic/soft_prior_phase"] = jp.zeros(())
+        metrics["diagnostic/behavior_prior_cost"] = jp.zeros(())
         metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
         metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
@@ -579,6 +593,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         return enabled & needs_progress & warm_enough & below_floor
 
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
+        state.info["behavior_prior_obs"] = state.obs["state"]
 
         if USE_IMITATION_REWARD:
             state.info["imitation_i"] += 1
@@ -812,6 +827,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/soft_prior_phase"] = state.info[
             "soft_prior_phase"
         ].astype(reward.dtype)
+        state.metrics["diagnostic/behavior_prior_cost"] = state.info[
+            "behavior_prior_cost"
+        ]
         state.metrics["diagnostic/command_progress_ratio"] = state.info[
             "command_progress_ratio"
         ]
@@ -989,6 +1007,35 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         cost = jp.mean(pseudo_huber_cost(action_subset - prior_action, cfg.huber_delta))
         return cost, phase
 
+    def _behavior_prior_forward(self, obs_state: jax.Array) -> jax.Array:
+        """Return a frozen MLP teacher action for the current policy observation."""
+        cfg = self._config.behavior_prior
+        mean = jp.asarray(cfg.obs_mean, dtype=obs_state.dtype)
+        std = jp.maximum(jp.asarray(cfg.obs_std, dtype=obs_state.dtype), 1.0e-6)
+        z = (obs_state - mean) / std
+        weights = [jp.asarray(weight, dtype=obs_state.dtype) for weight in cfg.weights]
+        biases = [jp.asarray(bias, dtype=obs_state.dtype) for bias in cfg.biases]
+        for index, (weight, bias) in enumerate(zip(weights, biases)):
+            z = z @ weight + bias
+            if index < len(weights) - 1:
+                if cfg.activation == "swish":
+                    z = z * jax.nn.sigmoid(z)
+                else:
+                    z = jp.tanh(z)
+        if cfg.output_mode == "ppo_tanh_loc":
+            return jp.tanh(z)
+        return jp.clip(z, -1.0, 1.0)
+
+    def _get_behavior_prior_cost(
+        self, action: jax.Array, info: dict[str, Any]
+    ) -> jax.Array:
+        """Return default-off state-conditioned teacher-action cost."""
+        cfg = self._config.behavior_prior
+        if not cfg.enable or len(cfg.weights) == 0:
+            return jp.zeros(())
+        teacher_action = self._behavior_prior_forward(info["behavior_prior_obs"])
+        return jp.mean(pseudo_huber_cost(action - teacher_action, cfg.huber_delta))
+
     def _get_reward(
         self,
         data: mjx.Data,
@@ -1004,6 +1051,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         soft_prior_cost, soft_prior_phase = self._get_soft_prior_cost(action, info)
         info["soft_prior_cost"] = soft_prior_cost
         info["soft_prior_phase"] = soft_prior_phase
+        info["behavior_prior_cost"] = self._get_behavior_prior_cost(action, info)
 
         ret = {
             "tracking_lin_vel": reward_tracking_lin_vel(
@@ -1104,6 +1152,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "target_rate": info["target_velocity_cost"],
             "actuator_tracking": info["actuator_bridge_tracking_cost"],
             "soft_prior": info["soft_prior_cost"],
+            "behavior_prior": info["behavior_prior_cost"],
             "alive": reward_alive(),
             "imitation": reward_imitation(  # FIXME, this reward is so adhoc...
                 self.get_floating_base_qpos(data.qpos),  # floating base qpos
