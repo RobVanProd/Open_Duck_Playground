@@ -780,6 +780,16 @@ def main() -> None:
         default=None,
         help="Optional maximum LR for the Brax adaptive KL schedule.",
     )
+    parser.add_argument(
+        "--restore_policy_kl_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional PPO loss coefficient for KL(current policy || restored "
+            "checkpoint policy) on rollout observations. Requires "
+            "--restore_checkpoint_path."
+        ),
+    )
     # parser.add_argument(
     #     "--debug", action="store_true", help="Run in debug mode with minimal parameters"
     # )

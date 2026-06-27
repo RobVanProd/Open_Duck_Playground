@@ -12,7 +12,13 @@ from flax.training import orbax_utils
 from tensorboardX import SummaryWriter
 
 import os
-from brax.training.agents.ppo import networks as ppo_networks, train as ppo
+from brax.training.agents.ppo import (
+    checkpoint as ppo_checkpoint,
+    losses as ppo_losses,
+    networks as ppo_networks,
+    train as ppo,
+)
+import jax.numpy as jnp
 from mujoco_playground import wrapper
 from mujoco_playground.config import locomotion_params
 from orbax import checkpoint as ocp
@@ -90,6 +96,73 @@ class BaseRunner(ABC):
             output_path=onnx_export_path
         )
 
+    def maybe_patch_restore_policy_kl_loss(self) -> None:
+        """Optionally add a PPO loss term that anchors to restored policy logits."""
+        scale = getattr(self.args, "restore_policy_kl_scale", None)
+        if scale is None or scale <= 0:
+            return
+        if self.restore_checkpoint_path is None:
+            raise ValueError(
+                "--restore_policy_kl_scale requires --restore_checkpoint_path"
+            )
+
+        teacher_normalizer, teacher_policy_params, _ = ppo_checkpoint.load(
+            self.restore_checkpoint_path
+        )
+        original_compute_ppo_loss = ppo_losses.compute_ppo_loss
+
+        def compute_ppo_loss_with_restore_kl(
+            params,
+            normalizer_params,
+            data,
+            rng,
+            ppo_network,
+            *args,
+            **kwargs,
+        ):
+            total_loss, metrics = original_compute_ppo_loss(
+                params,
+                normalizer_params,
+                data,
+                rng,
+                ppo_network,
+                *args,
+                **kwargs,
+            )
+            data_t = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
+            policy_apply = ppo_network.policy_network.apply
+            dist = ppo_network.parametric_action_distribution
+            current_logits = policy_apply(
+                normalizer_params, params.policy, data_t.observation
+            )
+            teacher_logits = jax.lax.stop_gradient(
+                policy_apply(
+                    teacher_normalizer, teacher_policy_params, data_t.observation
+                )
+            )
+            current_dist = dist.create_dist(current_logits)
+            teacher_dist = dist.create_dist(teacher_logits)
+            if hasattr(current_dist, "kl_divergence"):
+                restore_policy_kl = jnp.mean(
+                    current_dist.kl_divergence(teacher_dist)
+                )
+            else:
+                restore_policy_kl = jnp.array(0.0)
+            restore_policy_kl_loss = scale * restore_policy_kl
+            total_loss = total_loss + restore_policy_kl_loss
+            metrics = {
+                **metrics,
+                "restore_policy_kl": restore_policy_kl,
+                "restore_policy_kl_loss": restore_policy_kl_loss,
+            }
+            return total_loss, metrics
+
+        ppo_losses.compute_ppo_loss = compute_ppo_loss_with_restore_kl
+        print(
+            "Enabled restore-policy KL loss: "
+            f"scale={scale} restore_checkpoint_path={self.restore_checkpoint_path}"
+        )
+
     def train(self) -> None:
         self.ppo_params = locomotion_params.brax_ppo_config(
             "BerkeleyHumanoidJoystickFlatTerrain"
@@ -135,6 +208,7 @@ class BaseRunner(ABC):
             if value is not None:
                 self.ppo_training_params[key] = value
         print(f"PPO params: {self.ppo_training_params}")
+        self.maybe_patch_restore_policy_kl_loss()
 
         train_fn = functools.partial(
             ppo.train,
