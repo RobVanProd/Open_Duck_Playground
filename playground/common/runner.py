@@ -120,6 +120,16 @@ class BaseRunner(ABC):
             "entropy_cost": getattr(self.args, "ppo_entropy_cost", None),
             "clipping_epsilon": getattr(self.args, "ppo_clipping_epsilon", None),
             "max_grad_norm": getattr(self.args, "ppo_max_grad_norm", None),
+            "desired_kl": getattr(self.args, "ppo_desired_kl", None),
+            "learning_rate_schedule": getattr(
+                self.args, "ppo_learning_rate_schedule", None
+            ),
+            "learning_rate_schedule_min_lr": getattr(
+                self.args, "ppo_learning_rate_schedule_min_lr", None
+            ),
+            "learning_rate_schedule_max_lr": getattr(
+                self.args, "ppo_learning_rate_schedule_max_lr", None
+            ),
         }
         for key, value in ppo_cli_overrides.items():
             if value is not None:

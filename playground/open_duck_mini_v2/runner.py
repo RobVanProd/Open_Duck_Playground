@@ -756,6 +756,30 @@ def main() -> None:
     parser.add_argument("--ppo_entropy_cost", type=float, default=None)
     parser.add_argument("--ppo_clipping_epsilon", type=float, default=None)
     parser.add_argument("--ppo_max_grad_norm", type=float, default=None)
+    parser.add_argument(
+        "--ppo_desired_kl",
+        type=float,
+        default=None,
+        help="Optional Brax PPO desired_kl override for adaptive KL LR schedule.",
+    )
+    parser.add_argument(
+        "--ppo_learning_rate_schedule",
+        choices=["NONE", "ADAPTIVE_KL"],
+        default=None,
+        help="Optional Brax PPO learning_rate_schedule override.",
+    )
+    parser.add_argument(
+        "--ppo_learning_rate_schedule_min_lr",
+        type=float,
+        default=None,
+        help="Optional minimum LR for the Brax adaptive KL schedule.",
+    )
+    parser.add_argument(
+        "--ppo_learning_rate_schedule_max_lr",
+        type=float,
+        default=None,
+        help="Optional maximum LR for the Brax adaptive KL schedule.",
+    )
     # parser.add_argument(
     #     "--debug", action="store_true", help="Run in debug mode with minimal parameters"
     # )
