@@ -245,6 +245,21 @@ def cost_forward_double_support_dwell(
     return jp.nan_to_num(jp.where(needs_progress, excess / grace, 0.0))
 
 
+def cost_forward_swing_clearance(
+    commands: jax.Array,
+    swing_peak_lift: jax.Array,
+    first_contact: jax.Array,
+    target_lift: float = 0.03,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize low swing-foot peak lift on touchdown during a forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    shortfall = jp.clip(target_lift - swing_peak_lift, 0.0, None)
+    cost = pseudo_huber_cost(shortfall, huber_delta)
+    return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
+
+
 def reward_base_y_swing(
     base_y_speed: jax.Array,
     freq: float,

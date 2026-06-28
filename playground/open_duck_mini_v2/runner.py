@@ -156,6 +156,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_double_support": args.forward_double_support_scale,
             "forward_contact_transition": args.forward_contact_transition_scale,
             "forward_double_support_dwell": args.forward_double_support_dwell_scale,
+            "forward_swing_clearance": args.forward_swing_clearance_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -219,6 +220,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_double_support_dwell_grace_steps = (
                 args.forward_double_support_dwell_grace_steps
             )
+        if args.forward_swing_clearance_target_m is not None:
+            config.reward_config.forward_swing_clearance_target_m = (
+                args.forward_swing_clearance_target_m
+            )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
             "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
@@ -231,6 +236,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             ),
             "forward_pitch_huber_delta": args.forward_pitch_huber_delta,
             "forward_pitch_rate_huber_delta": args.forward_pitch_rate_huber_delta,
+            "forward_swing_clearance_huber_delta": (
+                args.forward_swing_clearance_huber_delta
+            ),
             "command_progress_shortfall_huber_delta": (
                 args.command_progress_shortfall_huber_delta
             ),
@@ -636,6 +644,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_swing_clearance_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward swing-clearance cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--action_rate_scale",
         type=float,
         default=None,
@@ -759,6 +776,25 @@ def main() -> None:
         type=int,
         default=None,
         help="Number of forward-command double-support steps allowed before dwell cost grows.",
+    )
+    parser.add_argument(
+        "--forward_swing_clearance_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_swing_clearance. "
+            "Use a negative value to penalize touchdown after insufficient "
+            "swing-foot lift during a forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_clearance_target_m",
+        type=float,
+        default=None,
+        help=(
+            "Target swing-foot peak lift over the last stance height, in meters, "
+            "for forward_swing_clearance."
+        ),
     )
     parser.add_argument(
         "--alive_scale",
