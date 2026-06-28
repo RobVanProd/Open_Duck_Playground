@@ -27,13 +27,34 @@ class OpenDuckMiniV2Runner(BaseRunner):
         self.env_config = self._build_env_config(args)
         self.env = self.env_file[1](task=args.task, config=self.env_config)
         self.eval_env = self.env_file[1](task=args.task, config=self.env_config)
-        self.randomizer = randomize.domain_randomize
+        self.randomizer = randomize.make_domain_randomizer(
+            self._build_domain_randomization_config(args)
+        )
         self.action_size = self.env.action_size
         self.obs_size = int(
             self.env.observation_size["state"][0]
         )  # 0: state 1: privileged_state
         self.restore_checkpoint_path = args.restore_checkpoint_path
         print(f"Observation size: {self.obs_size}")
+
+    def _build_domain_randomization_config(self, args):
+        return {
+            "friction_min": args.dr_friction_min,
+            "friction_max": args.dr_friction_max,
+            "frictionloss_scale_min": args.dr_frictionloss_scale_min,
+            "frictionloss_scale_max": args.dr_frictionloss_scale_max,
+            "armature_scale_min": args.dr_armature_scale_min,
+            "armature_scale_max": args.dr_armature_scale_max,
+            "com_jitter_m": args.dr_com_jitter_m,
+            "mass_scale_min": args.dr_mass_scale_min,
+            "mass_scale_max": args.dr_mass_scale_max,
+            "torso_mass_delta_min": args.dr_torso_mass_delta_min,
+            "torso_mass_delta_max": args.dr_torso_mass_delta_max,
+            "qpos_jitter_rad": args.dr_qpos_jitter_rad,
+            "actuator_gain_scale_min": args.dr_actuator_gain_scale_min,
+            "actuator_gain_scale_max": args.dr_actuator_gain_scale_max,
+            "leg_geometry_jitter_scale": args.dr_leg_geometry_jitter_scale,
+        }
 
     def _build_env_config(self, args):
         config = self.env_file[0].default_config()
@@ -237,6 +258,36 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.command_resample_steps = args.command_resample_steps
         if args.zero_command_probability is not None:
             config.zero_command_probability = args.zero_command_probability
+
+        if args.push_enable is not None:
+            config.push_config.enable = args.push_enable
+        if args.push_interval_min_s is not None or args.push_interval_max_s is not None:
+            current_min, current_max = config.push_config.interval_range
+            config.push_config.interval_range = [
+                current_min if args.push_interval_min_s is None else args.push_interval_min_s,
+                current_max if args.push_interval_max_s is None else args.push_interval_max_s,
+            ]
+        if args.push_magnitude_min is not None or args.push_magnitude_max is not None:
+            current_min, current_max = config.push_config.magnitude_range
+            config.push_config.magnitude_range = [
+                current_min if args.push_magnitude_min is None else args.push_magnitude_min,
+                current_max if args.push_magnitude_max is None else args.push_magnitude_max,
+            ]
+
+        if args.noise_level is not None:
+            config.noise_config.level = args.noise_level
+        noise_scale_overrides = {
+            "hip_pos": args.noise_hip_pos,
+            "knee_pos": args.noise_knee_pos,
+            "ankle_pos": args.noise_ankle_pos,
+            "joint_vel": args.noise_joint_vel,
+            "gravity": args.noise_gravity,
+            "gyro": args.noise_gyro,
+            "accelerometer": args.noise_accelerometer,
+        }
+        for name, value in noise_scale_overrides.items():
+            if value is not None:
+                config.noise_config.scales[name] = value
         return config
 
 
@@ -745,6 +796,44 @@ def main() -> None:
         default=None,
         help="Optional override for sampled head command range multiplier.",
     )
+    parser.add_argument("--dr_friction_min", type=float, default=None)
+    parser.add_argument("--dr_friction_max", type=float, default=None)
+    parser.add_argument("--dr_frictionloss_scale_min", type=float, default=None)
+    parser.add_argument("--dr_frictionloss_scale_max", type=float, default=None)
+    parser.add_argument("--dr_armature_scale_min", type=float, default=None)
+    parser.add_argument("--dr_armature_scale_max", type=float, default=None)
+    parser.add_argument("--dr_com_jitter_m", type=float, default=None)
+    parser.add_argument("--dr_mass_scale_min", type=float, default=None)
+    parser.add_argument("--dr_mass_scale_max", type=float, default=None)
+    parser.add_argument("--dr_torso_mass_delta_min", type=float, default=None)
+    parser.add_argument("--dr_torso_mass_delta_max", type=float, default=None)
+    parser.add_argument("--dr_qpos_jitter_rad", type=float, default=None)
+    parser.add_argument("--dr_actuator_gain_scale_min", type=float, default=None)
+    parser.add_argument("--dr_actuator_gain_scale_max", type=float, default=None)
+    parser.add_argument(
+        "--dr_leg_geometry_jitter_scale",
+        type=float,
+        default=None,
+        help="Default-off multiplicative body_pos jitter for leg-link geometry.",
+    )
+    parser.add_argument(
+        "--push_enable",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable training push perturbations.",
+    )
+    parser.add_argument("--push_interval_min_s", type=float, default=None)
+    parser.add_argument("--push_interval_max_s", type=float, default=None)
+    parser.add_argument("--push_magnitude_min", type=float, default=None)
+    parser.add_argument("--push_magnitude_max", type=float, default=None)
+    parser.add_argument("--noise_level", type=float, default=None)
+    parser.add_argument("--noise_hip_pos", type=float, default=None)
+    parser.add_argument("--noise_knee_pos", type=float, default=None)
+    parser.add_argument("--noise_ankle_pos", type=float, default=None)
+    parser.add_argument("--noise_joint_vel", type=float, default=None)
+    parser.add_argument("--noise_gravity", type=float, default=None)
+    parser.add_argument("--noise_gyro", type=float, default=None)
+    parser.add_argument("--noise_accelerometer", type=float, default=None)
     parser.add_argument("--ppo_num_envs", type=int, default=None)
     parser.add_argument("--ppo_num_evals", type=int, default=None)
     parser.add_argument("--ppo_episode_length", type=int, default=None)
