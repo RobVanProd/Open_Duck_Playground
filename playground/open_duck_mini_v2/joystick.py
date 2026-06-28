@@ -48,6 +48,7 @@ from playground.common.rewards import (
     reward_forward_contact_transition,
     cost_forward_double_support_dwell,
     cost_forward_swing_clearance,
+    cost_forward_swing_balance,
     cost_torques,
     cost_action_rate,
     cost_action_magnitude,
@@ -147,6 +148,7 @@ def default_config() -> config_dict.ConfigDict:
                 forward_contact_transition=0.0,
                 forward_double_support_dwell=0.0,
                 forward_swing_clearance=0.0,
+                forward_swing_balance=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
@@ -167,6 +169,7 @@ def default_config() -> config_dict.ConfigDict:
             forward_contact_transition_min_progress_ratio=0.25,
             forward_double_support_dwell_grace_steps=10,
             forward_swing_clearance_target_m=0.03,
+            forward_swing_balance_grace_steps=20,
             action_rate_huber_delta=0.0,
             action_magnitude_huber_delta=0.0,
             target_rate_huber_delta=0.0,
@@ -409,6 +412,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "swing_peak": jp.zeros(2),
             "foot_stance_height": initial_foot_z,
             "swing_peak_lift": jp.zeros(2),
+            "forward_swing_steps": jp.zeros(2, dtype=jp.int32),
             # Push related.
             "push": jp.array([0.0, 0.0]),
             "push_step": 0,
@@ -445,6 +449,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
         metrics["diagnostic/forward_double_support_steps"] = jp.zeros(())
         metrics["diagnostic/swing_peak_lift"] = jp.zeros(())
+        metrics["diagnostic/forward_swing_imbalance"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -741,6 +746,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             state.info["forward_double_support_steps"] + 1,
             0,
         )
+        state.info["forward_swing_steps"] += jp.where(
+            needs_forward_progress,
+            (~contact).astype(jp.int32),
+            jp.zeros(2, dtype=jp.int32),
+        )
         contact_filt = contact | state.info["last_contact"]
         first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt
         state.info["feet_air_time"] += self.dt
@@ -810,6 +820,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.info["forward_double_support_steps"] = jp.where(
             reset_command_window, 0, state.info["forward_double_support_steps"]
         )
+        state.info["forward_swing_steps"] = jp.where(
+            reset_command_window,
+            jp.zeros(2, dtype=jp.int32),
+            state.info["forward_swing_steps"],
+        )
         state.info["feet_air_time"] *= ~contact
         state.info["last_contact"] = contact
         state.info["swing_peak"] *= ~contact
@@ -862,6 +877,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/swing_peak_lift"] = jp.mean(
             state.info["swing_peak_lift"]
         )
+        swing_steps = state.info["forward_swing_steps"].astype(jp.float32)
+        state.metrics["diagnostic/forward_swing_imbalance"] = jp.abs(
+            swing_steps[0] - swing_steps[1]
+        ) / jp.maximum(jp.sum(swing_steps), 1.0)
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
@@ -1167,6 +1186,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self._config.reward_config.forward_swing_clearance_target_m,
                 self._config.reward_config.forward_progress_deadband,
                 self._config.reward_config.forward_swing_clearance_huber_delta,
+            ),
+            "forward_swing_balance": cost_forward_swing_balance(
+                info["command"],
+                info["forward_swing_steps"],
+                self._config.reward_config.forward_swing_balance_grace_steps,
+                self._config.reward_config.forward_progress_deadband,
             ),
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(

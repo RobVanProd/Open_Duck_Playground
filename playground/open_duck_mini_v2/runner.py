@@ -157,6 +157,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_contact_transition": args.forward_contact_transition_scale,
             "forward_double_support_dwell": args.forward_double_support_dwell_scale,
             "forward_swing_clearance": args.forward_swing_clearance_scale,
+            "forward_swing_balance": args.forward_swing_balance_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -223,6 +224,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
         if args.forward_swing_clearance_target_m is not None:
             config.reward_config.forward_swing_clearance_target_m = (
                 args.forward_swing_clearance_target_m
+            )
+        if args.forward_swing_balance_grace_steps is not None:
+            config.reward_config.forward_swing_balance_grace_steps = (
+                args.forward_swing_balance_grace_steps
             )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
@@ -795,6 +800,22 @@ def main() -> None:
             "Target swing-foot peak lift over the last stance height, in meters, "
             "for forward_swing_clearance."
         ),
+    )
+    parser.add_argument(
+        "--forward_swing_balance_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_swing_balance. "
+            "Use a negative value to penalize one-sided swing usage during a "
+            "forward command window."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_balance_grace_steps",
+        type=int,
+        default=None,
+        help="Number of accumulated swing steps before swing-balance cost is active.",
     )
     parser.add_argument(
         "--alive_scale",

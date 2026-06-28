@@ -260,6 +260,22 @@ def cost_forward_swing_clearance(
     return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
 
 
+def cost_forward_swing_balance(
+    commands: jax.Array,
+    swing_steps: jax.Array,
+    grace_steps: int = 20,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize one-sided swing usage during a forward command window."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    swing = swing_steps.astype(jp.float32)
+    total = jp.sum(swing)
+    grace = jp.asarray(grace_steps, dtype=jp.float32)
+    enough_samples = total > grace
+    imbalance = jp.abs(swing[0] - swing[1]) / jp.maximum(total, 1.0)
+    return jp.nan_to_num(jp.where(needs_progress & enough_samples, imbalance, 0.0))
+
+
 def reward_base_y_swing(
     base_y_speed: jax.Array,
     freq: float,
