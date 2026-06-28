@@ -158,6 +158,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_double_support_dwell": args.forward_double_support_dwell_scale,
             "forward_swing_clearance": args.forward_swing_clearance_scale,
             "forward_swing_balance": args.forward_swing_balance_scale,
+            "forward_swing_advance": args.forward_swing_advance_scale,
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -229,6 +230,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_swing_balance_grace_steps = (
                 args.forward_swing_balance_grace_steps
             )
+        if args.forward_swing_advance_target_m is not None:
+            config.reward_config.forward_swing_advance_target_m = (
+                args.forward_swing_advance_target_m
+            )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
             "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
@@ -243,6 +248,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_pitch_rate_huber_delta": args.forward_pitch_rate_huber_delta,
             "forward_swing_clearance_huber_delta": (
                 args.forward_swing_clearance_huber_delta
+            ),
+            "forward_swing_advance_huber_delta": (
+                args.forward_swing_advance_huber_delta
             ),
             "command_progress_shortfall_huber_delta": (
                 args.command_progress_shortfall_huber_delta
@@ -658,6 +666,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_swing_advance_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward swing-advance cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--action_rate_scale",
         type=float,
         default=None,
@@ -816,6 +833,25 @@ def main() -> None:
         type=int,
         default=None,
         help="Number of accumulated swing steps before swing-balance cost is active.",
+    )
+    parser.add_argument(
+        "--forward_swing_advance_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_swing_advance. "
+            "Use a negative value to penalize touchdown after insufficient "
+            "forward swing-foot advance during a forward command."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_advance_target_m",
+        type=float,
+        default=None,
+        help=(
+            "Target swing-foot forward advance in the body frame, in meters, "
+            "for forward_swing_advance."
+        ),
     )
     parser.add_argument(
         "--alive_scale",
