@@ -11,6 +11,12 @@ from playground.common.runner import BaseRunner
 from playground.open_duck_mini_v2 import joystick, standing
 
 
+def _parse_int_list(value: str | None) -> list[int] | None:
+    if value is None:
+        return None
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
 class OpenDuckMiniV2Runner(BaseRunner):
 
     def __init__(self, args):
@@ -135,6 +141,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
         config.reward_config.scales.target_rate = args.target_rate_scale
         config.reward_config.scales.actuator_tracking = args.actuator_tracking_scale
         reward_scale_overrides = {
+            "push_recovery_actuator_tracking": (
+                args.push_recovery_actuator_tracking_scale
+            ),
             "tracking_lin_vel": args.tracking_lin_vel_scale,
             "tracking_ang_vel": args.tracking_ang_vel_scale,
             "forward_progress": args.forward_progress_scale,
@@ -234,11 +243,25 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_swing_advance_target_m = (
                 args.forward_swing_advance_target_m
             )
+        if args.push_recovery_tracking_window_steps is not None:
+            config.reward_config.push_recovery_tracking_window_steps = (
+                args.push_recovery_tracking_window_steps
+            )
+        push_recovery_joint_indices = _parse_int_list(
+            args.push_recovery_tracking_joint_indices
+        )
+        if push_recovery_joint_indices is not None:
+            config.reward_config.push_recovery_tracking_joint_indices = (
+                push_recovery_joint_indices
+            )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
             "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
             "target_rate_huber_delta": args.target_rate_huber_delta,
             "actuator_tracking_huber_delta": args.actuator_tracking_huber_delta,
+            "push_recovery_actuator_tracking_huber_delta": (
+                args.push_recovery_actuator_tracking_huber_delta
+            ),
             "forward_shortfall_huber_delta": args.forward_shortfall_huber_delta,
             "forward_overshoot_huber_delta": args.forward_overshoot_huber_delta,
             "forward_wrong_direction_huber_delta": (
@@ -415,6 +438,16 @@ def main() -> None:
             "Scale applied to the sent-vs-applied target cost. Use a negative "
             "value to penalize the cost; positive values reward it. Default "
             "keeps behavior unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--push_recovery_actuator_tracking_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales."
+            "push_recovery_actuator_tracking. Use a negative value to penalize "
+            "sent-vs-applied actuator mismatch only after push impulses."
         ),
     )
     parser.add_argument(
@@ -600,6 +633,15 @@ def main() -> None:
         help=(
             "Optional pseudo-Huber delta for actuator tracking cost. Default "
             "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--push_recovery_actuator_tracking_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for push-recovery actuator tracking "
+            "cost. Default keeps the existing squared cost."
         ),
     )
     parser.add_argument(
@@ -851,6 +893,24 @@ def main() -> None:
         help=(
             "Target swing-foot forward advance in the body frame, in meters, "
             "for forward_swing_advance."
+        ),
+    )
+    parser.add_argument(
+        "--push_recovery_tracking_window_steps",
+        type=int,
+        default=None,
+        help=(
+            "Number of control ticks after each push impulse to apply "
+            "push-recovery tracking cost."
+        ),
+    )
+    parser.add_argument(
+        "--push_recovery_tracking_joint_indices",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated actuator indices for push-recovery tracking cost. "
+            "Default uses all actuators; e.g. 3 targets left_knee."
         ),
     )
     parser.add_argument(
