@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import tensorflow as tf
 from tensorflow.keras import layers
 import tf2onnx
@@ -179,8 +180,16 @@ def export_onnx(
         tf_policy_network, input_signature=spec, opset=11, output_path=output_path
     )
 
-    # For Antoine :)
-    model_proto, _ = tf2onnx.convert.from_keras(
-        tf_policy_network, input_signature=spec, opset=11, output_path="ONNX.onnx"
-    )
+    compat_output = os.environ.get("OPEN_DUCK_COMPAT_ONNX_OUTPUT")
+    if compat_output:
+        compat_path = Path(compat_output).expanduser()
+        if not compat_path.is_absolute():
+            compat_path = Path(output_path).resolve().parent / compat_path
+        compat_path.parent.mkdir(parents=True, exist_ok=True)
+        tf2onnx.convert.from_keras(
+            tf_policy_network,
+            input_signature=spec,
+            opset=11,
+            output_path=str(compat_path),
+        )
     return
