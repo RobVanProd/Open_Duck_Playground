@@ -419,6 +419,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "push_recovery_steps": jp.zeros((), dtype=jp.int32),
             "target_velocity_cost": jp.zeros(()),
             "target_velocity": jp.zeros(self.mjx_model.nu),
+            "forward_swing_target_rate_limit_cost": jp.zeros(()),
             "soft_prior_cost": jp.zeros(()),
             "soft_prior_phase": jp.zeros((), dtype=jp.int32),
             "behavior_prior_cost": jp.zeros(()),
