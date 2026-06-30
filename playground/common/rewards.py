@@ -260,6 +260,23 @@ def cost_forward_swing_clearance(
     return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
 
 
+def cost_forward_phase_swing_lift(
+    commands: jax.Array,
+    foot_lift: jax.Array,
+    phase_swing_mask: jax.Array,
+    target_lift: float = 0.016,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize low lift during the phase-commanded swing window."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    shortfall = jp.clip(target_lift - foot_lift, 0.0, None)
+    cost = pseudo_huber_cost(shortfall, huber_delta)
+    swing = phase_swing_mask.astype(jp.float32)
+    active = jp.sum(swing) > 0.5
+    return jp.nan_to_num(jp.where(needs_progress & active, jp.sum(cost * swing), 0.0))
+
+
 def cost_forward_swing_balance(
     commands: jax.Array,
     swing_steps: jax.Array,

@@ -172,6 +172,7 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_contact_transition": args.forward_contact_transition_scale,
             "forward_double_support_dwell": args.forward_double_support_dwell_scale,
             "forward_swing_clearance": args.forward_swing_clearance_scale,
+            "forward_phase_swing_lift": args.forward_phase_swing_lift_scale,
             "forward_swing_balance": args.forward_swing_balance_scale,
             "forward_swing_advance": args.forward_swing_advance_scale,
             "forward_swing_target_rate_limit": (
@@ -244,6 +245,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_swing_clearance_target_m = (
                 args.forward_swing_clearance_target_m
             )
+        if args.forward_phase_swing_lift_target_m is not None:
+            config.reward_config.forward_phase_swing_lift_target_m = (
+                args.forward_phase_swing_lift_target_m
+            )
         if args.forward_swing_balance_grace_steps is not None:
             config.reward_config.forward_swing_balance_grace_steps = (
                 args.forward_swing_balance_grace_steps
@@ -294,6 +299,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_pitch_rate_huber_delta": args.forward_pitch_rate_huber_delta,
             "forward_swing_clearance_huber_delta": (
                 args.forward_swing_clearance_huber_delta
+            ),
+            "forward_phase_swing_lift_huber_delta": (
+                args.forward_phase_swing_lift_huber_delta
             ),
             "forward_swing_advance_huber_delta": (
                 args.forward_swing_advance_huber_delta
@@ -734,6 +742,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_phase_swing_lift_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for phase-commanded swing lift cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--forward_swing_advance_huber_delta",
         type=float,
         default=None,
@@ -893,6 +910,25 @@ def main() -> None:
         help=(
             "Target swing-foot peak lift over the last stance height, in meters, "
             "for forward_swing_clearance."
+        ),
+    )
+    parser.add_argument(
+        "--forward_phase_swing_lift_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_phase_swing_lift. "
+            "Use a negative value to penalize low current foot lift during the "
+            "phase-commanded swing window."
+        ),
+    )
+    parser.add_argument(
+        "--forward_phase_swing_lift_target_m",
+        type=float,
+        default=None,
+        help=(
+            "Target current swing-foot lift over stance height, in meters, for "
+            "forward_phase_swing_lift."
         ),
     )
     parser.add_argument(
