@@ -49,15 +49,21 @@ class BaseRunner(ABC):
         self.restore_checkpoint_path = None
         
         # CACHE STUFF
-        os.makedirs(".tmp", exist_ok=True)
-        jax.config.update("jax_compilation_cache_dir", ".tmp/jax_cache")
+        cache_dir = Path(os.environ.get("JAX_COMPILATION_CACHE_DIR", ".tmp/jax_cache"))
+        if not cache_dir.is_absolute():
+            cache_dir = (Path.cwd() / cache_dir).resolve()
+        (
+            cache_dir
+            / "xla_gpu_per_fusion_autotune_cache_dir"
+        ).mkdir(parents=True, exist_ok=True)
+        jax.config.update("jax_compilation_cache_dir", str(cache_dir))
         jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
         jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
         jax.config.update(
             "jax_persistent_cache_enable_xla_caches",
             "xla_gpu_per_fusion_autotune_cache_dir",
         )
-        os.environ["JAX_COMPILATION_CACHE_DIR"] = ".tmp/jax_cache"
+        os.environ["JAX_COMPILATION_CACHE_DIR"] = str(cache_dir)
 
     def progress_callback(self, num_steps: int, metrics: dict) -> None:
 
