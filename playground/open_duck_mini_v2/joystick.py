@@ -50,6 +50,7 @@ from playground.common.rewards import (
     cost_forward_swing_clearance,
     cost_forward_swing_balance,
     cost_forward_swing_advance,
+    cost_forward_swing_target_rate_limit,
     cost_torques,
     cost_action_rate,
     cost_action_magnitude,
@@ -152,6 +153,7 @@ def default_config() -> config_dict.ConfigDict:
                 forward_swing_clearance=0.0,
                 forward_swing_balance=0.0,
                 forward_swing_advance=0.0,
+                forward_swing_target_rate_limit=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
@@ -174,6 +176,8 @@ def default_config() -> config_dict.ConfigDict:
             forward_swing_clearance_target_m=0.03,
             forward_swing_balance_grace_steps=20,
             forward_swing_advance_target_m=0.005,
+            forward_swing_target_rate_limit_joint_indices=[],
+            forward_swing_target_rate_limit_values=[],
             push_recovery_tracking_window_steps=25,
             push_recovery_tracking_joint_indices=[],
             action_rate_huber_delta=0.0,
@@ -188,6 +192,7 @@ def default_config() -> config_dict.ConfigDict:
             forward_pitch_rate_huber_delta=0.0,
             forward_swing_clearance_huber_delta=0.0,
             forward_swing_advance_huber_delta=0.0,
+            forward_swing_target_rate_limit_huber_delta=0.0,
             command_progress_shortfall_huber_delta=0.0,
         ),
         push_config=config_dict.create(
@@ -413,6 +418,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "push_recovery_actuator_tracking_cost": jp.zeros(()),
             "push_recovery_steps": jp.zeros((), dtype=jp.int32),
             "target_velocity_cost": jp.zeros(()),
+            "target_velocity": jp.zeros(self.mjx_model.nu),
             "soft_prior_cost": jp.zeros(()),
             "soft_prior_phase": jp.zeros((), dtype=jp.int32),
             "behavior_prior_cost": jp.zeros(()),
@@ -739,6 +745,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 target_velocity, self._config.reward_config.target_rate_huber_delta
             )
         )
+        state.info["target_velocity"] = target_velocity
         state.info["actuator_bridge_tracking_cost"] = jp.mean(
             pseudo_huber_cost(
                 sent_motor_targets - applied_motor_targets,
@@ -1144,6 +1151,36 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         teacher_action = self._behavior_prior_forward(info["behavior_prior_obs"])
         return jp.mean(pseudo_huber_cost(action - teacher_action, cfg.huber_delta))
 
+    def _get_forward_swing_target_rate_limit_cost(
+        self, info: dict[str, Any]
+    ) -> jax.Array:
+        """Return default-off phase-swing target-rate excess cost."""
+        cfg = self._config.reward_config
+        joint_indices_cfg = cfg.forward_swing_target_rate_limit_joint_indices
+        limits_cfg = cfg.forward_swing_target_rate_limit_values
+        if len(joint_indices_cfg) == 0 or len(limits_cfg) == 0:
+            return jp.zeros(())
+        joint_indices = jp.asarray(joint_indices_cfg, dtype=jp.int32)
+        velocity_limits = jp.asarray(limits_cfg, dtype=info["target_velocity"].dtype)
+        if velocity_limits.shape[0] != joint_indices.shape[0]:
+            return jp.zeros(())
+        phase01 = jp.asarray(info["imitation_i"], dtype=jp.float32) / jp.asarray(
+            self.PRM.nb_steps_in_period, dtype=jp.float32
+        )
+        right_swing = phase01 < 0.5
+        swing_mask = jp.zeros(self.mjx_model.nu, dtype=jp.bool_)
+        swing_mask = swing_mask.at[2:5].set(~right_swing)
+        swing_mask = swing_mask.at[11:14].set(right_swing)
+        return cost_forward_swing_target_rate_limit(
+            info["command"],
+            info["target_velocity"],
+            swing_mask,
+            joint_indices,
+            velocity_limits,
+            cfg.forward_progress_deadband,
+            cfg.forward_swing_target_rate_limit_huber_delta,
+        )
+
     def _get_reward(
         self,
         data: mjx.Data,
@@ -1160,6 +1197,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         info["soft_prior_cost"] = soft_prior_cost
         info["soft_prior_phase"] = soft_prior_phase
         info["behavior_prior_cost"] = self._get_behavior_prior_cost(action, info)
+        info["forward_swing_target_rate_limit_cost"] = (
+            self._get_forward_swing_target_rate_limit_cost(info)
+        )
 
         ret = {
             "tracking_lin_vel": reward_tracking_lin_vel(
@@ -1270,6 +1310,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self._config.reward_config.forward_progress_deadband,
                 self._config.reward_config.forward_swing_advance_huber_delta,
             ),
+            "forward_swing_target_rate_limit": info[
+                "forward_swing_target_rate_limit_cost"
+            ],
             "torques": cost_torques(data.actuator_force),
             "action_rate": cost_action_rate(
                 action,

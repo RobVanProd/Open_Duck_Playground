@@ -17,6 +17,12 @@ def _parse_int_list(value: str | None) -> list[int] | None:
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
 
+def _parse_float_list(value: str | None) -> list[float] | None:
+    if value is None:
+        return None
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+
 class OpenDuckMiniV2Runner(BaseRunner):
 
     def __init__(self, args):
@@ -168,6 +174,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_swing_clearance": args.forward_swing_clearance_scale,
             "forward_swing_balance": args.forward_swing_balance_scale,
             "forward_swing_advance": args.forward_swing_advance_scale,
+            "forward_swing_target_rate_limit": (
+                args.forward_swing_target_rate_limit_scale
+            ),
             "alive": args.alive_scale,
             "imitation": args.imitation_scale,
         }
@@ -243,6 +252,20 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_swing_advance_target_m = (
                 args.forward_swing_advance_target_m
             )
+        swing_rate_joint_indices = _parse_int_list(
+            args.forward_swing_target_rate_limit_joint_indices
+        )
+        if swing_rate_joint_indices is not None:
+            config.reward_config.forward_swing_target_rate_limit_joint_indices = (
+                swing_rate_joint_indices
+            )
+        swing_rate_limits = _parse_float_list(
+            args.forward_swing_target_rate_limit_values
+        )
+        if swing_rate_limits is not None:
+            config.reward_config.forward_swing_target_rate_limit_values = (
+                swing_rate_limits
+            )
         if args.push_recovery_tracking_window_steps is not None:
             config.reward_config.push_recovery_tracking_window_steps = (
                 args.push_recovery_tracking_window_steps
@@ -274,6 +297,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             ),
             "forward_swing_advance_huber_delta": (
                 args.forward_swing_advance_huber_delta
+            ),
+            "forward_swing_target_rate_limit_huber_delta": (
+                args.forward_swing_target_rate_limit_huber_delta
             ),
             "command_progress_shortfall_huber_delta": (
                 args.command_progress_shortfall_huber_delta
@@ -717,6 +743,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--forward_swing_target_rate_limit_huber_delta",
+        type=float,
+        default=None,
+        help=(
+            "Optional pseudo-Huber delta for forward swing target-rate limit cost. "
+            "Default keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
         "--action_rate_scale",
         type=float,
         default=None,
@@ -893,6 +928,33 @@ def main() -> None:
         help=(
             "Target swing-foot forward advance in the body frame, in meters, "
             "for forward_swing_advance."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_target_rate_limit_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_swing_target_rate_limit. "
+            "Use a negative value to penalize phase-commanded swing target-rate excess "
+            "against selected per-joint limits."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_target_rate_limit_joint_indices",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated actuator indices for phase-commanded swing target-rate "
+            "limit cost, e.g. 11,12,13 for the right pitch chain."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_target_rate_limit_values",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated rad/s limits matching --forward_swing_target_rate_limit_joint_indices."
         ),
     )
     parser.add_argument(

@@ -291,6 +291,28 @@ def cost_forward_swing_advance(
     return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
 
 
+def cost_forward_swing_target_rate_limit(
+    commands: jax.Array,
+    target_velocity: jax.Array,
+    swing_mask: jax.Array,
+    joint_indices: jax.Array,
+    velocity_limits: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize phase-commanded swing target-rate excess on selected joints."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    if joint_indices.size == 0 or velocity_limits.size == 0:
+        return jp.zeros(())
+    selected_velocity = jp.take(target_velocity, joint_indices)
+    selected_swing_mask = jp.take(swing_mask, joint_indices).astype(jp.float32)
+    limits = jp.maximum(velocity_limits.astype(target_velocity.dtype), 1.0e-6)
+    excess = jp.clip(jp.abs(selected_velocity) - limits, 0.0, None) / limits
+    cost = pseudo_huber_cost(excess, huber_delta) * selected_swing_mask
+    active = jp.sum(selected_swing_mask) > 0.5
+    return jp.nan_to_num(jp.where(needs_progress & active, jp.mean(cost), 0.0))
+
+
 def reward_base_y_swing(
     base_y_speed: jax.Array,
     freq: float,
