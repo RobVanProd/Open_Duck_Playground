@@ -249,6 +249,10 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_phase_swing_lift_target_m = (
                 args.forward_phase_swing_lift_target_m
             )
+        if args.forward_swing_phase_advance_ticks is not None:
+            config.reward_config.forward_swing_phase_advance_ticks = (
+                args.forward_swing_phase_advance_ticks
+            )
         if args.forward_swing_balance_grace_steps is not None:
             config.reward_config.forward_swing_balance_grace_steps = (
                 args.forward_swing_balance_grace_steps
@@ -302,6 +306,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             ),
             "forward_phase_swing_lift_huber_delta": (
                 args.forward_phase_swing_lift_huber_delta
+            ),
+            "forward_swing_phase_advance_ticks": (
+                args.forward_swing_phase_advance_ticks
             ),
             "forward_swing_advance_huber_delta": (
                 args.forward_swing_advance_huber_delta
@@ -929,6 +936,15 @@ def main() -> None:
         help=(
             "Target current swing-foot lift over stance height, in meters, for "
             "forward_phase_swing_lift."
+        ),
+    )
+    parser.add_argument(
+        "--forward_swing_phase_advance_ticks",
+        type=int,
+        default=None,
+        help=(
+            "Advance phase-primary swing-side reward masks by this many control "
+            "ticks. Default 0 preserves the environment phase."
         ),
     )
     parser.add_argument(

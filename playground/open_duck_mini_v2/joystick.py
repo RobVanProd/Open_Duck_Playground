@@ -177,6 +177,7 @@ def default_config() -> config_dict.ConfigDict:
             forward_double_support_dwell_grace_steps=10,
             forward_swing_clearance_target_m=0.03,
             forward_phase_swing_lift_target_m=0.016,
+            forward_swing_phase_advance_ticks=0,
             forward_swing_balance_grace_steps=20,
             forward_swing_advance_target_m=0.005,
             forward_swing_target_rate_limit_joint_indices=[],
@@ -481,6 +482,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
         metrics["diagnostic/forward_double_support_steps"] = jp.zeros(())
         metrics["diagnostic/forward_phase_swing_lift_cost"] = jp.zeros(())
+        metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.zeros(())
         metrics["diagnostic/swing_peak_lift"] = jp.zeros(())
         metrics["diagnostic/swing_peak_forward_advance"] = jp.zeros(())
         metrics["diagnostic/forward_swing_imbalance"] = jp.zeros(())
@@ -968,6 +970,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/forward_phase_swing_lift_cost"] = state.info[
             "forward_phase_swing_lift_cost"
         ]
+        state.metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.asarray(
+            self._config.reward_config.forward_swing_phase_advance_ticks,
+            dtype=reward.dtype,
+        )
         state.metrics["diagnostic/swing_peak_lift"] = jp.mean(
             state.info["swing_peak_lift"]
         )
@@ -1200,9 +1206,13 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         )
 
     def _get_phase_foot_swing_mask(self, info: dict[str, Any]) -> jax.Array:
-        phase01 = jp.asarray(info["imitation_i"], dtype=jp.float32) / jp.asarray(
-            self.PRM.nb_steps_in_period, dtype=jp.float32
+        period = jp.asarray(self.PRM.nb_steps_in_period, dtype=jp.float32)
+        advance_ticks = jp.asarray(
+            self._config.reward_config.forward_swing_phase_advance_ticks,
+            dtype=jp.float32,
         )
+        phase_i = jp.mod(jp.asarray(info["imitation_i"], dtype=jp.float32) + advance_ticks, period)
+        phase01 = phase_i / period
         right_swing = phase01 < 0.5
         return jp.array([~right_swing, right_swing])
 
