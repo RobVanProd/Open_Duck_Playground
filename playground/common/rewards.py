@@ -277,6 +277,27 @@ def cost_forward_phase_swing_lift(
     return jp.nan_to_num(jp.where(needs_progress & active, jp.sum(cost * swing), 0.0))
 
 
+def cost_forward_phase_single_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    phase_swing_mask: jax.Array,
+    swing_contact_weight: float = 1.0,
+    stance_no_contact_weight: float = 2.0,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize contact states that do not match phase-commanded single support."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    swing = phase_swing_mask.astype(jp.float32)
+    stance = 1.0 - swing
+    contact_f = contact.astype(jp.float32)
+    swing_contact_cost = swing_contact_weight * jp.sum(contact_f * swing)
+    stance_no_contact_cost = stance_no_contact_weight * jp.sum((1.0 - contact_f) * stance)
+    active = jp.sum(swing) > 0.5
+    return jp.nan_to_num(
+        jp.where(needs_progress & active, swing_contact_cost + stance_no_contact_cost, 0.0)
+    )
+
+
 def cost_forward_swing_balance(
     commands: jax.Array,
     swing_steps: jax.Array,

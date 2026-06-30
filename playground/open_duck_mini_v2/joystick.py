@@ -49,6 +49,7 @@ from playground.common.rewards import (
     cost_forward_double_support_dwell,
     cost_forward_swing_clearance,
     cost_forward_phase_swing_lift,
+    cost_forward_phase_single_support,
     cost_forward_swing_balance,
     cost_forward_swing_advance,
     cost_forward_swing_target_rate_limit,
@@ -153,6 +154,7 @@ def default_config() -> config_dict.ConfigDict:
                 forward_double_support_dwell=0.0,
                 forward_swing_clearance=0.0,
                 forward_phase_swing_lift=0.0,
+                forward_phase_single_support=0.0,
                 forward_swing_balance=0.0,
                 forward_swing_advance=0.0,
                 forward_swing_target_rate_limit=0.0,
@@ -177,6 +179,8 @@ def default_config() -> config_dict.ConfigDict:
             forward_double_support_dwell_grace_steps=10,
             forward_swing_clearance_target_m=0.03,
             forward_phase_swing_lift_target_m=0.016,
+            forward_phase_single_support_swing_contact_weight=1.0,
+            forward_phase_single_support_stance_no_contact_weight=2.0,
             forward_swing_phase_advance_ticks=0,
             forward_swing_balance_grace_steps=20,
             forward_swing_advance_target_m=0.005,
@@ -426,6 +430,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "target_velocity": jp.zeros(self.mjx_model.nu),
             "forward_swing_target_rate_limit_cost": jp.zeros(()),
             "forward_phase_swing_lift_cost": jp.zeros(()),
+            "forward_phase_single_support_cost": jp.zeros(()),
             "soft_prior_cost": jp.zeros(()),
             "soft_prior_phase": jp.zeros((), dtype=jp.int32),
             "behavior_prior_cost": jp.zeros(()),
@@ -482,6 +487,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["diagnostic/command_progress_failure"] = jp.zeros(())
         metrics["diagnostic/forward_double_support_steps"] = jp.zeros(())
         metrics["diagnostic/forward_phase_swing_lift_cost"] = jp.zeros(())
+        metrics["diagnostic/forward_phase_single_support_cost"] = jp.zeros(())
         metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.zeros(())
         metrics["diagnostic/swing_peak_lift"] = jp.zeros(())
         metrics["diagnostic/swing_peak_forward_advance"] = jp.zeros(())
@@ -831,6 +837,16 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self._config.reward_config.forward_phase_swing_lift_huber_delta,
             )
         )
+        state.info["forward_phase_single_support_cost"] = (
+            cost_forward_phase_single_support(
+                state.info["command"],
+                contact,
+                phase_swing_mask,
+                self._config.reward_config.forward_phase_single_support_swing_contact_weight,
+                self._config.reward_config.forward_phase_single_support_stance_no_contact_weight,
+                self._config.reward_config.forward_progress_deadband,
+            )
+        )
         state.info["swing_peak_lift"] = jp.maximum(
             state.info["swing_peak_lift"],
             jp.where(contact, 0.0, swing_lift),
@@ -969,6 +985,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         ].astype(reward.dtype)
         state.metrics["diagnostic/forward_phase_swing_lift_cost"] = state.info[
             "forward_phase_swing_lift_cost"
+        ]
+        state.metrics["diagnostic/forward_phase_single_support_cost"] = state.info[
+            "forward_phase_single_support_cost"
         ]
         state.metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.asarray(
             self._config.reward_config.forward_swing_phase_advance_ticks,
@@ -1332,6 +1351,9 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self._config.reward_config.forward_swing_clearance_huber_delta,
             ),
             "forward_phase_swing_lift": info["forward_phase_swing_lift_cost"],
+            "forward_phase_single_support": info[
+                "forward_phase_single_support_cost"
+            ],
             "forward_swing_balance": cost_forward_swing_balance(
                 info["command"],
                 info["forward_swing_steps"],

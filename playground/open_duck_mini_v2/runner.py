@@ -173,6 +173,9 @@ class OpenDuckMiniV2Runner(BaseRunner):
             "forward_double_support_dwell": args.forward_double_support_dwell_scale,
             "forward_swing_clearance": args.forward_swing_clearance_scale,
             "forward_phase_swing_lift": args.forward_phase_swing_lift_scale,
+            "forward_phase_single_support": (
+                args.forward_phase_single_support_scale
+            ),
             "forward_swing_balance": args.forward_swing_balance_scale,
             "forward_swing_advance": args.forward_swing_advance_scale,
             "forward_swing_target_rate_limit": (
@@ -249,6 +252,14 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.forward_phase_swing_lift_target_m = (
                 args.forward_phase_swing_lift_target_m
             )
+        if args.forward_phase_single_support_swing_contact_weight is not None:
+            config.reward_config.forward_phase_single_support_swing_contact_weight = (
+                args.forward_phase_single_support_swing_contact_weight
+            )
+        if args.forward_phase_single_support_stance_no_contact_weight is not None:
+            config.reward_config.forward_phase_single_support_stance_no_contact_weight = (
+                args.forward_phase_single_support_stance_no_contact_weight
+            )
         if args.forward_swing_phase_advance_ticks is not None:
             config.reward_config.forward_swing_phase_advance_ticks = (
                 args.forward_swing_phase_advance_ticks
@@ -306,6 +317,12 @@ class OpenDuckMiniV2Runner(BaseRunner):
             ),
             "forward_phase_swing_lift_huber_delta": (
                 args.forward_phase_swing_lift_huber_delta
+            ),
+            "forward_phase_single_support_swing_contact_weight": (
+                args.forward_phase_single_support_swing_contact_weight
+            ),
+            "forward_phase_single_support_stance_no_contact_weight": (
+                args.forward_phase_single_support_stance_no_contact_weight
             ),
             "forward_swing_phase_advance_ticks": (
                 args.forward_swing_phase_advance_ticks
@@ -937,6 +954,28 @@ def main() -> None:
             "Target current swing-foot lift over stance height, in meters, for "
             "forward_phase_swing_lift."
         ),
+    )
+    parser.add_argument(
+        "--forward_phase_single_support_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional override for reward_config.scales.forward_phase_single_support. "
+            "Use a negative value to penalize phase-commanded swing windows where "
+            "the swing foot remains planted or the stance foot unloads."
+        ),
+    )
+    parser.add_argument(
+        "--forward_phase_single_support_swing_contact_weight",
+        type=float,
+        default=None,
+        help="Cost weight for phase-swing foot contact in forward_phase_single_support.",
+    )
+    parser.add_argument(
+        "--forward_phase_single_support_stance_no_contact_weight",
+        type=float,
+        default=None,
+        help="Cost weight for stance-foot no-contact in forward_phase_single_support.",
     )
     parser.add_argument(
         "--forward_swing_phase_advance_ticks",
