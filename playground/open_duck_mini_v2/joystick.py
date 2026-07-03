@@ -209,6 +209,13 @@ def default_config() -> config_dict.ConfigDict:
             interval_range=[5.0, 10.0],
             magnitude_range=[0.1, 1.0],
         ),
+        reset_config=config_dict.create(
+            base_xy_jitter_m=0.05,
+            yaw_jitter_rad=3.14,
+            actuator_qpos_multiplier_min=0.5,
+            actuator_qpos_multiplier_max=1.5,
+            base_qvel_jitter=0.05,
+        ),
         lin_vel_x=[-0.15, 0.15],
         lin_vel_y=[-0.2, 0.2],
         ang_vel_yaw=[-1.0, 1.0],  # [-1.0, 1.0]
@@ -334,9 +341,16 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         qvel = jp.zeros(self.mjx_model.nv)
 
         # init position/orientation in environment
-        # x=+U(-0.05, 0.05), y=+U(-0.05, 0.05), yaw=U(-3.14, 3.14).
+        # Defaults preserve the original broad reset. Runner flags can set
+        # these scales to zero for a grounded-home start contract.
+        reset_cfg = self._config.reset_config
         rng, key = jax.random.split(rng)
-        dxy = jax.random.uniform(key, (2,), minval=-0.05, maxval=0.05)
+        dxy = jax.random.uniform(
+            key,
+            (2,),
+            minval=-reset_cfg.base_xy_jitter_m,
+            maxval=reset_cfg.base_xy_jitter_m,
+        )
 
         # floating base
         base_qpos = self.get_floating_base_qpos(qpos)
@@ -346,7 +360,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         )  # x y noise
 
         rng, key = jax.random.split(rng)
-        yaw = jax.random.uniform(key, (1,), minval=-3.14, maxval=3.14)
+        yaw = jax.random.uniform(
+            key,
+            (1,),
+            minval=-reset_cfg.yaw_jitter_rad,
+            maxval=reset_cfg.yaw_jitter_rad,
+        )
         quat = math.axis_angle_to_quat(jp.array([0, 0, 1]), yaw)
         new_quat = math.quat_mul(
             qpos[self._floating_base_qpos_addr + 3 : self._floating_base_qpos_addr + 7],
@@ -363,7 +382,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
 
         # multiply actual joints with noise (excluding floating base and backlash)
         qpos_j = self.get_actuator_joints_qpos(qpos) * jax.random.uniform(
-            key, (self._actuators,), minval=0.5, maxval=1.5
+            key,
+            (self._actuators,),
+            minval=reset_cfg.actuator_qpos_multiplier_min,
+            maxval=reset_cfg.actuator_qpos_multiplier_max,
         )
         qpos = self.set_actuator_joints_qpos(qpos_j, qpos)
         # print(f'DEBUG2 joint qpos: {qpos}')
@@ -375,7 +397,13 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         # )
 
         qvel = self.set_floating_base_qvel(
-            jax.random.uniform(key, (6,), minval=-0.05, maxval=0.05), qvel
+            jax.random.uniform(
+                key,
+                (6,),
+                minval=-reset_cfg.base_qvel_jitter,
+                maxval=reset_cfg.base_qvel_jitter,
+            ),
+            qvel,
         )
         # print(f'DEBUG3 base qvel: {qvel}')
         ctrl = self.get_actuator_joints_qpos(qpos)

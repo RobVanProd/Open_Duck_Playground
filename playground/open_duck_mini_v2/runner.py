@@ -390,6 +390,21 @@ class OpenDuckMiniV2Runner(BaseRunner):
         for name, value in noise_scale_overrides.items():
             if value is not None:
                 config.noise_config.scales[name] = value
+        if hasattr(config, "reset_config"):
+            reset_overrides = {
+                "base_xy_jitter_m": args.reset_base_xy_jitter_m,
+                "yaw_jitter_rad": args.reset_yaw_jitter_rad,
+                "actuator_qpos_multiplier_min": (
+                    args.reset_actuator_qpos_multiplier_min
+                ),
+                "actuator_qpos_multiplier_max": (
+                    args.reset_actuator_qpos_multiplier_max
+                ),
+                "base_qvel_jitter": args.reset_base_qvel_jitter,
+            }
+            for name, value in reset_overrides.items():
+                if value is not None:
+                    config.reset_config[name] = value
         return config
 
 
@@ -1102,6 +1117,11 @@ def main() -> None:
         default=None,
         help="Optional override for sampled head command range multiplier.",
     )
+    parser.add_argument("--reset_base_xy_jitter_m", type=float, default=None)
+    parser.add_argument("--reset_yaw_jitter_rad", type=float, default=None)
+    parser.add_argument("--reset_actuator_qpos_multiplier_min", type=float, default=None)
+    parser.add_argument("--reset_actuator_qpos_multiplier_max", type=float, default=None)
+    parser.add_argument("--reset_base_qvel_jitter", type=float, default=None)
     parser.add_argument("--dr_friction_min", type=float, default=None)
     parser.add_argument("--dr_friction_max", type=float, default=None)
     parser.add_argument("--dr_frictionloss_scale_min", type=float, default=None)
