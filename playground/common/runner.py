@@ -25,6 +25,7 @@ from orbax import checkpoint as ocp
 import jax
 
 from playground.common.export_onnx import export_onnx
+from playground.common.phase_modulated_ppo import make_phase_modulated_ppo_networks
 
 
 class BaseRunner(ABC):
@@ -177,7 +178,64 @@ class BaseRunner(ABC):
         # self.ppo_training_params["num_timesteps"] = 150000000 * 20
         
 
-        if "network_factory" in self.ppo_params:
+        if getattr(self.args, "ppo_policy_network", "mlp") == "phase_modulated":
+            context_indices = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_context_indices", "6,99,100"
+                ).split(",")
+                if item.strip()
+            )
+            context_hidden = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_context_hidden_sizes", "64"
+                ).split(",")
+                if item.strip()
+            )
+            policy_hidden = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_policy_hidden_sizes", "512,256"
+                ).split(",")
+                if item.strip()
+            )
+            network_factory = functools.partial(
+                make_phase_modulated_ppo_networks,
+                policy_hidden_layer_sizes=policy_hidden,
+                context_hidden_layer_sizes=context_hidden,
+                context_indices=context_indices,
+                activation=getattr(self.args, "phase_modulated_activation", "swish"),
+                init_scale_logit=getattr(self.args, "phase_modulated_init_scale_logit", -2.0),
+                modulation_scale=getattr(self.args, "phase_modulated_scale", 0.5),
+                value_hidden_layer_sizes=getattr(
+                    self.ppo_params.network_factory,
+                    "value_hidden_layer_sizes",
+                    (256,) * 5,
+                ),
+                distribution_type=getattr(
+                    self.ppo_params.network_factory,
+                    "distribution_type",
+                    "tanh_normal",
+                ),
+            )
+            self.ppo_training_params.pop("network_factory", None)
+            self.ppo_params.network_factory.policy_network_kind = "phase_modulated"
+            self.ppo_params.network_factory.phase_modulated_context_indices = context_indices
+            self.ppo_params.network_factory.phase_modulated_context_hidden_sizes = context_hidden
+            self.ppo_params.network_factory.phase_modulated_policy_hidden_sizes = policy_hidden
+            self.ppo_params.network_factory.phase_modulated_activation = getattr(
+                self.args, "phase_modulated_activation", "swish"
+            )
+            self.ppo_params.network_factory.phase_modulated_scale = getattr(
+                self.args, "phase_modulated_scale", 0.5
+            )
+            print(
+                "Using phase-modulated PPO policy network: "
+                f"hidden={policy_hidden} context_hidden={context_hidden} "
+                f"context_indices={context_indices}"
+            )
+        elif "network_factory" in self.ppo_params:
             network_factory = functools.partial(
                 ppo_networks.make_ppo_networks, **self.ppo_params.network_factory
             )

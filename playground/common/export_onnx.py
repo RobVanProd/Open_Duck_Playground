@@ -12,10 +12,182 @@ if os.environ.get("OPEN_DUCK_TF_EXPORT_ALLOW_GPU", "0") != "1":
         print(f"TensorFlow GPU visibility already initialized: {exc}")
 
 
+def _extract_policy_params(p):
+    policy = getattr(p, 'policy', p)
+    return policy.get('params') if isinstance(policy, dict) else None
+
+
+def _config_get(mapping, key, default=None):
+    if mapping is None:
+        return default
+    if isinstance(mapping, dict):
+        return mapping.get(key, default)
+    return getattr(mapping, key, default)
+
+
+def _activation_node(nodes, input_name, output_name, activation, name):
+    import onnx
+    from onnx import helper
+
+    del onnx
+    if activation == "tanh":
+        nodes.append(helper.make_node("Tanh", [input_name], [output_name], name=f"{name}_tanh"))
+    elif activation == "swish":
+        sigmoid = f"{name}_sigmoid"
+        nodes.append(helper.make_node("Sigmoid", [input_name], [sigmoid], name=f"{name}_sigmoid"))
+        nodes.append(helper.make_node("Mul", [input_name, sigmoid], [output_name], name=f"{name}_swish"))
+    else:
+        raise ValueError(f"unsupported phase-modulated ONNX activation: {activation}")
+
+
+def _export_phase_modulated_onnx(
+    policy_params,
+    ppo_params,
+    obs_size,
+    output_path,
+):
+    import onnx
+    from onnx import TensorProto, helper, numpy_helper
+
+    network_factory = getattr(ppo_params, "network_factory", None)
+    context_indices = _config_get(
+        network_factory, "phase_modulated_context_indices", (6, 99, 100)
+    )
+    activation = _config_get(network_factory, "phase_modulated_activation", "swish")
+    trunk_indices = sorted(
+        int(key.split("_", 1)[1])
+        for key in policy_params
+        if key.startswith("trunk_") and key.split("_", 1)[1].isdigit()
+    )
+    context_layer_indices = sorted(
+        int(key.split("_", 1)[1])
+        for key in policy_params
+        if key.startswith("context_") and key.split("_", 1)[1].isdigit()
+    )
+
+    def arr(name):
+        return np.asarray(policy_params[name], dtype=np.float32)
+
+    def layer_arr(layer_name, param_name):
+        return np.asarray(policy_params[layer_name][param_name], dtype=np.float32)
+
+    initializers = [
+        numpy_helper.from_array(arr("obs_mean"), name="obs_mean"),
+        numpy_helper.from_array(arr("obs_std"), name="obs_std"),
+        numpy_helper.from_array(np.asarray(context_indices, dtype=np.int64), name="context_indices"),
+        numpy_helper.from_array(arr("context_mean"), name="context_mean"),
+        numpy_helper.from_array(arr("context_std"), name="context_std"),
+        numpy_helper.from_array(arr("modulation_scale").reshape(1), name="modulation_scale"),
+        numpy_helper.from_array(np.asarray([1.0], dtype=np.float32), name="one_initializer"),
+    ]
+    nodes = [
+        helper.make_node("Sub", ["obs", "obs_mean"], ["obs_centered"], name="norm_obs_sub"),
+        helper.make_node("Div", ["obs_centered", "obs_std"], ["trunk_in"], name="norm_obs_div"),
+        helper.make_node("Gather", ["obs", "context_indices"], ["context_raw"], name="context_gather", axis=1),
+        helper.make_node("Sub", ["context_raw", "context_mean"], ["context_centered"], name="norm_context_sub"),
+        helper.make_node("Div", ["context_centered", "context_std"], ["context_in"], name="norm_context_div"),
+    ]
+
+    previous = "trunk_in"
+    for index in trunk_indices:
+        initializers.append(
+            numpy_helper.from_array(layer_arr(f"trunk_{index}", "kernel"), name=f"trunk_w{index}")
+        )
+        initializers.append(
+            numpy_helper.from_array(layer_arr(f"trunk_{index}", "bias"), name=f"trunk_b{index}")
+        )
+        gemm = f"trunk_gemm{index}"
+        nodes.append(
+            helper.make_node(
+                "Gemm",
+                [previous, f"trunk_w{index}", f"trunk_b{index}"],
+                [gemm],
+                name=f"trunk_gemm{index}",
+            )
+        )
+        activated = f"trunk_act{index}"
+        _activation_node(nodes, gemm, activated, activation, f"trunk_{index}")
+        previous = activated
+    hidden = previous
+
+    previous = "context_in"
+    for offset, index in enumerate(context_layer_indices):
+        initializers.append(
+            numpy_helper.from_array(layer_arr(f"context_{index}", "kernel"), name=f"context_w{index}")
+        )
+        initializers.append(
+            numpy_helper.from_array(layer_arr(f"context_{index}", "bias"), name=f"context_b{index}")
+        )
+        gemm = f"context_gemm{index}"
+        nodes.append(
+            helper.make_node(
+                "Gemm",
+                [previous, f"context_w{index}", f"context_b{index}"],
+                [gemm],
+                name=f"context_gemm{index}",
+            )
+        )
+        if offset < len(context_layer_indices) - 1:
+            activated = f"context_act{index}"
+            _activation_node(nodes, gemm, activated, activation, f"context_{index}")
+            previous = activated
+        else:
+            previous = gemm
+
+    hidden_dim = int(layer_arr("output", "kernel").shape[0])
+    initializers.append(
+        numpy_helper.from_array(np.asarray([hidden_dim, hidden_dim], dtype=np.int64), name="split_sizes")
+    )
+    nodes.extend(
+        [
+            helper.make_node("Split", [previous, "split_sizes"], ["gamma_raw", "beta_raw"], name="context_split", axis=1),
+            helper.make_node("Tanh", ["gamma_raw"], ["gamma_tanh"], name="gamma_tanh"),
+            helper.make_node("Tanh", ["beta_raw"], ["beta_tanh"], name="beta_tanh"),
+            helper.make_node("Mul", ["gamma_tanh", "modulation_scale"], ["gamma_scaled"], name="gamma_scale"),
+            helper.make_node("Mul", ["beta_tanh", "modulation_scale"], ["beta_scaled"], name="beta_scale"),
+            helper.make_node("Add", ["gamma_scaled", "one_initializer"], ["gamma_plus_one"], name="gamma_plus_one"),
+            helper.make_node("Mul", [hidden, "gamma_plus_one"], ["hidden_scaled"], name="hidden_apply_gamma"),
+            helper.make_node("Add", ["hidden_scaled", "beta_scaled"], ["hidden_modulated"], name="hidden_apply_beta"),
+        ]
+    )
+    initializers.append(
+        numpy_helper.from_array(layer_arr("output", "kernel"), name="output_w")
+    )
+    initializers.append(
+        numpy_helper.from_array(layer_arr("output", "bias"), name="output_b")
+    )
+    nodes.extend(
+        [
+            helper.make_node("Gemm", ["hidden_modulated", "output_w", "output_b"], ["loc"], name="output_gemm"),
+            helper.make_node("Tanh", ["loc"], ["continuous_actions"], name="output_tanh"),
+        ]
+    )
+    graph = helper.make_graph(
+        nodes,
+        "open_duck_phase_modulated_ppo_policy",
+        [helper.make_tensor_value_info("obs", TensorProto.FLOAT, [1, int(obs_size)])],
+        [helper.make_tensor_value_info("continuous_actions", TensorProto.FLOAT, [1, 14])],
+        initializer=initializers,
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="open-duck-mini-rdkx5",
+        opset_imports=[helper.make_operatorsetid("", 13)],
+    )
+    model.ir_version = min(model.ir_version, 10)
+    onnx.checker.check_model(model)
+    onnx.save(model, output_path)
+
+
 def export_onnx(
     params, act_size, ppo_params, obs_size, output_path="ONNX.onnx"
 ):
     print(" === EXPORT ONNX === ")
+    policy_params = _extract_policy_params(params[1])
+    if isinstance(policy_params, dict) and "output" in policy_params and "obs_mean" in policy_params:
+        print("Detected phase-modulated PPO policy; using phase-modulated ONNX exporter.")
+        _export_phase_modulated_onnx(policy_params, ppo_params, obs_size, output_path)
+        return
 
     # inference_fn = make_inference_fn(params, deterministic=True)
 
@@ -155,11 +327,7 @@ def export_onnx(
 
         print("Weights transferred successfully.")
 
-    def extract_policy_params(p):
-        policy = getattr(p, 'policy', p)
-        return policy.get('params') if isinstance(policy, dict) else None
-
-    transfer_weights(extract_policy_params(params[1]), tf_policy_network)
+    transfer_weights(policy_params, tf_policy_network)
 
     # Example inputs for the model
     test_input = [np.ones((1, obs_size), dtype=np.float32)]

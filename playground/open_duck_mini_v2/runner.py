@@ -1205,6 +1205,48 @@ def main() -> None:
             "--restore_checkpoint_path."
         ),
     )
+    parser.add_argument(
+        "--ppo_policy_network",
+        choices=["mlp", "phase_modulated"],
+        default="mlp",
+        help=(
+            "Policy network architecture for PPO. Use phase_modulated when "
+            "restoring a phase/context-conditioned Open Duck parent checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--phase_modulated_policy_hidden_sizes",
+        default="512,256",
+        help="Comma-separated trunk hidden sizes for --ppo_policy_network phase_modulated.",
+    )
+    parser.add_argument(
+        "--phase_modulated_context_hidden_sizes",
+        default="64",
+        help="Comma-separated context MLP hidden sizes for phase-modulated PPO.",
+    )
+    parser.add_argument(
+        "--phase_modulated_context_indices",
+        default="6,99,100",
+        help="Comma-separated obs indices used as phase/context inputs.",
+    )
+    parser.add_argument(
+        "--phase_modulated_activation",
+        choices=["swish", "tanh"],
+        default="swish",
+        help="Activation for phase-modulated PPO actor and value networks.",
+    )
+    parser.add_argument(
+        "--phase_modulated_scale",
+        type=float,
+        default=0.5,
+        help="Gamma/beta modulation scale for phase-modulated PPO actor.",
+    )
+    parser.add_argument(
+        "--phase_modulated_init_scale_logit",
+        type=float,
+        default=-2.0,
+        help="Initial tanh-normal scale logit for phase-modulated PPO actor.",
+    )
     # parser.add_argument(
     #     "--debug", action="store_true", help="Run in debug mode with minimal parameters"
     # )
