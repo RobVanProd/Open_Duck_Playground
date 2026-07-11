@@ -9,6 +9,13 @@ For examples on how to use some rewards, look at https://github.com/google-deepm
 import numpy as np
 
 
+def pseudo_huber_cost(error, delta=0.0):
+    if delta <= 0.0:
+        return np.square(error)
+    scaled = error / delta
+    return np.square(delta) * (np.sqrt(1.0 + np.square(scaled)) - 1.0)
+
+
 # Tracking rewards.
 def reward_tracking_lin_vel(commands, local_vel, tracking_sigma):
     # lin_vel_error = np.sum(np.square(commands[:2] - local_vel[:2]))
@@ -23,6 +30,80 @@ def reward_tracking_lin_vel(commands, local_vel, tracking_sigma):
 def reward_tracking_ang_vel(commands, ang_vel, tracking_sigma):
     ang_vel_error = np.square(commands[2] - ang_vel[2])
     return np.nan_to_num(np.exp(-ang_vel_error / tracking_sigma))
+
+
+def reward_forward_progress(commands, local_vel, deadband=0.02):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    progress_ratio = np.clip(signed_speed / target_speed, 0.0, 1.0)
+    return np.nan_to_num(np.where(needs_progress, progress_ratio, 0.0))
+
+
+def cost_forward_shortfall(
+    commands,
+    local_vel,
+    required_ratio=0.5,
+    deadband=0.02,
+    huber_delta=0.0,
+):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    required_speed = target_speed * required_ratio
+    shortfall = np.clip(required_speed - signed_speed, 0.0, None)
+    normalized_shortfall = shortfall / target_speed
+    return np.nan_to_num(
+        np.where(needs_progress, pseudo_huber_cost(normalized_shortfall, huber_delta), 0.0)
+    )
+
+
+def cost_forward_overshoot(
+    commands,
+    local_vel,
+    allowed_ratio=1.5,
+    deadband=0.02,
+    huber_delta=0.0,
+):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    allowed_speed = target_speed * allowed_ratio
+    overshoot = np.clip(signed_speed - allowed_speed, 0.0, None)
+    normalized_overshoot = overshoot / target_speed
+    return np.nan_to_num(
+        np.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_overshoot, huber_delta),
+            0.0,
+        )
+    )
+
+
+def cost_forward_wrong_direction(
+    commands,
+    local_vel,
+    allowed_reverse_ratio=0.1,
+    deadband=0.02,
+    huber_delta=0.0,
+):
+    command_x = commands[0]
+    needs_progress = np.abs(command_x) > deadband
+    target_speed = np.maximum(np.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * np.sign(command_x)
+    allowed_reverse_speed = -target_speed * allowed_reverse_ratio
+    wrong_direction = np.clip(allowed_reverse_speed - signed_speed, 0.0, None)
+    normalized_wrong_direction = wrong_direction / target_speed
+    return np.nan_to_num(
+        np.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_wrong_direction, huber_delta),
+            0.0,
+        )
+    )
 
 
 # Base-related rewards.
@@ -42,6 +123,38 @@ def cost_orientation(torso_zaxis):
 
 def cost_base_height(base_height, base_height_target):
     return np.nan_to_num(np.square(base_height - base_height_target))
+
+
+def cost_forward_pitch(commands, gravity, deadband=0.02, huber_delta=0.0):
+    needs_progress = np.abs(commands[0]) > deadband
+    return np.nan_to_num(
+        np.where(needs_progress, pseudo_huber_cost(gravity[0], huber_delta), 0.0)
+    )
+
+
+def cost_forward_pitch_rate(commands, gyro, deadband=0.02, huber_delta=0.0):
+    needs_progress = np.abs(commands[0]) > deadband
+    return np.nan_to_num(
+        np.where(needs_progress, pseudo_huber_cost(gyro[1], huber_delta), 0.0)
+    )
+
+
+def cost_forward_contact_support(
+    commands,
+    contact,
+    deadband=0.02,
+    no_contact_weight=1.0,
+    asymmetry_weight=0.0,
+):
+    needs_progress = np.abs(commands[0]) > deadband
+    contact_count = np.sum(contact.astype(np.float32))
+    no_contact = contact_count < 0.5
+    one_sided = np.abs(contact[0].astype(np.float32) - contact[1].astype(np.float32))
+    cost = (
+        no_contact_weight * no_contact.astype(np.float32)
+        + asymmetry_weight * one_sided
+    )
+    return np.nan_to_num(np.where(needs_progress, cost, 0.0))
 
 
 def reward_base_y_swing(base_y_speed, freq, amplitude, t, tracking_sigma):
@@ -65,6 +178,10 @@ def cost_energy(qvel, qfrc_actuator):
 def cost_action_rate(act, last_act):
     c1 = np.nan_to_num(np.sum(np.square(act - last_act)))
     return c1
+
+
+def cost_action_magnitude(act):
+    return np.nan_to_num(np.sum(np.square(act)))
 
 
 # Other rewards.

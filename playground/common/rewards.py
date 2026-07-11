@@ -7,6 +7,14 @@ import jax
 import jax.numpy as jp
 
 
+def pseudo_huber_cost(error: jax.Array, delta: float) -> jax.Array:
+    """Quadratic near zero and linear for large residuals."""
+    if delta <= 0.0:
+        return jp.square(error)
+    scaled = error / delta
+    return jp.square(delta) * (jp.sqrt(1.0 + jp.square(scaled)) - 1.0)
+
+
 # Tracking rewards.
 def reward_tracking_lin_vel(
     commands: jax.Array,
@@ -31,6 +39,87 @@ def reward_tracking_ang_vel(
     return jp.nan_to_num(jp.exp(-ang_vel_error / tracking_sigma))
 
 
+def reward_forward_progress(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    progress_ratio = jp.clip(signed_speed / target_speed, 0.0, 1.0)
+    return jp.nan_to_num(jp.where(needs_progress, progress_ratio, 0.0))
+
+
+def cost_forward_shortfall(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    required_ratio: float = 0.5,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize standing still when a nonzero forward command is active."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    required_speed = target_speed * required_ratio
+    shortfall = jp.clip(required_speed - signed_speed, 0.0, None)
+    normalized_shortfall = shortfall / target_speed
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(normalized_shortfall, huber_delta), 0.0)
+    )
+
+
+def cost_forward_overshoot(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    allowed_ratio: float = 1.5,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize moving much faster than the active forward command."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    allowed_speed = target_speed * allowed_ratio
+    overshoot = jp.clip(signed_speed - allowed_speed, 0.0, None)
+    normalized_overshoot = overshoot / target_speed
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_overshoot, huber_delta),
+            0.0,
+        )
+    )
+
+
+def cost_forward_wrong_direction(
+    commands: jax.Array,
+    local_vel: jax.Array,
+    allowed_reverse_ratio: float = 0.1,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize moving opposite the active forward command."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    allowed_reverse_speed = -target_speed * allowed_reverse_ratio
+    wrong_direction = jp.clip(allowed_reverse_speed - signed_speed, 0.0, None)
+    normalized_wrong_direction = wrong_direction / target_speed
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress,
+            pseudo_huber_cost(normalized_wrong_direction, huber_delta),
+            0.0,
+        )
+    )
+
+
 # Base-related rewards.
 
 
@@ -48,6 +137,218 @@ def cost_orientation(torso_zaxis: jax.Array) -> jax.Array:
 
 def cost_base_height(base_height: jax.Array, base_height_target: float) -> jax.Array:
     return jp.nan_to_num(jp.square(base_height - base_height_target))
+
+
+def cost_forward_pitch(
+    commands: jax.Array,
+    gravity: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize pitch-like gravity tilt only while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(gravity[0], huber_delta), 0.0)
+    )
+
+
+def cost_forward_pitch_rate(
+    commands: jax.Array,
+    gyro: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize pitch-rate-like gyro motion during forward-command rollouts."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    return jp.nan_to_num(
+        jp.where(needs_progress, pseudo_huber_cost(gyro[1], huber_delta), 0.0)
+    )
+
+
+def cost_forward_contact_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+    no_contact_weight: float = 1.0,
+    asymmetry_weight: float = 0.0,
+) -> jax.Array:
+    """Penalize unsupported or optionally one-sided support under forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    no_contact = contact_count < 0.5
+    one_sided = jp.abs(contact[0].astype(jp.float32) - contact[1].astype(jp.float32))
+    cost = (
+        no_contact_weight * no_contact.astype(jp.float32)
+        + asymmetry_weight * one_sided
+    )
+    return jp.nan_to_num(jp.where(needs_progress, cost, 0.0))
+
+
+def reward_forward_single_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Reward exactly one support foot while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    single_support = jp.abs(contact_count - 1.0) < 0.5
+    return jp.nan_to_num(jp.where(needs_progress, single_support.astype(jp.float32), 0.0))
+
+
+def cost_forward_double_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize double-support dwell while a forward command is active."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    contact_count = jp.sum(contact.astype(jp.float32))
+    double_support = contact_count > 1.5
+    return jp.nan_to_num(jp.where(needs_progress, double_support.astype(jp.float32), 0.0))
+
+
+def reward_forward_contact_transition(
+    commands: jax.Array,
+    first_contact: jax.Array,
+    local_vel: jax.Array,
+    deadband: float = 0.02,
+    min_progress_ratio: float = 0.25,
+) -> jax.Array:
+    """Reward a landing transition only when it coincides with forward progress."""
+    command_x = commands[0]
+    needs_progress = jp.abs(command_x) > deadband
+    target_speed = jp.maximum(jp.abs(command_x), 1.0e-6)
+    signed_speed = local_vel[0] * jp.sign(command_x)
+    progress_ratio = signed_speed / target_speed
+    has_forward_progress = progress_ratio >= min_progress_ratio
+    any_first_contact = jp.any(first_contact).astype(jp.float32)
+    return jp.nan_to_num(
+        jp.where(
+            needs_progress & has_forward_progress,
+            any_first_contact * jp.clip(progress_ratio, 0.0, 1.0),
+            0.0,
+        )
+    )
+
+
+def cost_forward_double_support_dwell(
+    commands: jax.Array,
+    double_support_steps: jax.Array,
+    grace_steps: int = 10,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize prolonged double support during a forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    grace = jp.maximum(jp.asarray(grace_steps, dtype=jp.float32), 1.0)
+    excess = jp.clip(double_support_steps.astype(jp.float32) - grace, 0.0, None)
+    return jp.nan_to_num(jp.where(needs_progress, excess / grace, 0.0))
+
+
+def cost_forward_swing_clearance(
+    commands: jax.Array,
+    swing_peak_lift: jax.Array,
+    first_contact: jax.Array,
+    target_lift: float = 0.03,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize low swing-foot peak lift on touchdown during a forward command."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    shortfall = jp.clip(target_lift - swing_peak_lift, 0.0, None)
+    cost = pseudo_huber_cost(shortfall, huber_delta)
+    return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
+
+
+def cost_forward_phase_swing_lift(
+    commands: jax.Array,
+    foot_lift: jax.Array,
+    phase_swing_mask: jax.Array,
+    target_lift: float = 0.016,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize low lift during the phase-commanded swing window."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    shortfall = jp.clip(target_lift - foot_lift, 0.0, None)
+    cost = pseudo_huber_cost(shortfall, huber_delta)
+    swing = phase_swing_mask.astype(jp.float32)
+    active = jp.sum(swing) > 0.5
+    return jp.nan_to_num(jp.where(needs_progress & active, jp.sum(cost * swing), 0.0))
+
+
+def cost_forward_phase_single_support(
+    commands: jax.Array,
+    contact: jax.Array,
+    phase_swing_mask: jax.Array,
+    swing_contact_weight: float = 1.0,
+    stance_no_contact_weight: float = 2.0,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize contact states that do not match phase-commanded single support."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    swing = phase_swing_mask.astype(jp.float32)
+    stance = 1.0 - swing
+    contact_f = contact.astype(jp.float32)
+    swing_contact_cost = swing_contact_weight * jp.sum(contact_f * swing)
+    stance_no_contact_cost = stance_no_contact_weight * jp.sum((1.0 - contact_f) * stance)
+    active = jp.sum(swing) > 0.5
+    return jp.nan_to_num(
+        jp.where(needs_progress & active, swing_contact_cost + stance_no_contact_cost, 0.0)
+    )
+
+
+def cost_forward_swing_balance(
+    commands: jax.Array,
+    swing_steps: jax.Array,
+    grace_steps: int = 20,
+    deadband: float = 0.02,
+) -> jax.Array:
+    """Penalize one-sided swing usage during a forward command window."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    swing = swing_steps.astype(jp.float32)
+    total = jp.sum(swing)
+    grace = jp.asarray(grace_steps, dtype=jp.float32)
+    enough_samples = total > grace
+    imbalance = jp.abs(swing[0] - swing[1]) / jp.maximum(total, 1.0)
+    return jp.nan_to_num(jp.where(needs_progress & enough_samples, imbalance, 0.0))
+
+
+def cost_forward_swing_advance(
+    commands: jax.Array,
+    swing_peak_forward_advance: jax.Array,
+    first_contact: jax.Array,
+    target_advance: float = 0.005,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize swing touchdowns that did not advance in the commanded direction."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    shortfall = jp.clip(target_advance - swing_peak_forward_advance, 0.0, None)
+    cost = pseudo_huber_cost(shortfall, huber_delta)
+    return jp.nan_to_num(jp.where(needs_progress, jp.sum(cost * first_contact), 0.0))
+
+
+def cost_forward_swing_target_rate_limit(
+    commands: jax.Array,
+    target_velocity: jax.Array,
+    swing_mask: jax.Array,
+    joint_indices: jax.Array,
+    velocity_limits: jax.Array,
+    deadband: float = 0.02,
+    huber_delta: float = 0.0,
+) -> jax.Array:
+    """Penalize phase-commanded swing target-rate excess on selected joints."""
+    needs_progress = jp.abs(commands[0]) > deadband
+    if joint_indices.size == 0 or velocity_limits.size == 0:
+        return jp.zeros(())
+    selected_velocity = jp.take(target_velocity, joint_indices)
+    selected_swing_mask = jp.take(swing_mask, joint_indices).astype(jp.float32)
+    limits = jp.maximum(velocity_limits.astype(target_velocity.dtype), 1.0e-6)
+    excess = jp.clip(jp.abs(selected_velocity) - limits, 0.0, None) / limits
+    cost = pseudo_huber_cost(excess, huber_delta) * selected_swing_mask
+    active = jp.sum(selected_swing_mask) > 0.5
+    return jp.nan_to_num(jp.where(needs_progress & active, jp.mean(cost), 0.0))
 
 
 def reward_base_y_swing(
@@ -74,9 +375,15 @@ def cost_energy(qvel: jax.Array, qfrc_actuator: jax.Array) -> jax.Array:
     return jp.nan_to_num(jp.sum(jp.abs(qvel) * jp.abs(qfrc_actuator)))
 
 
-def cost_action_rate(act: jax.Array, last_act: jax.Array) -> jax.Array:
-    c1 = jp.nan_to_num(jp.sum(jp.square(act - last_act)))
+def cost_action_rate(
+    act: jax.Array, last_act: jax.Array, huber_delta: float = 0.0
+) -> jax.Array:
+    c1 = jp.nan_to_num(jp.sum(pseudo_huber_cost(act - last_act, huber_delta)))
     return c1
+
+
+def cost_action_magnitude(act: jax.Array, huber_delta: float = 0.0) -> jax.Array:
+    return jp.nan_to_num(jp.sum(pseudo_huber_cost(act, huber_delta)))
 
 
 # Other rewards.

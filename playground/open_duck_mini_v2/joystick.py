@@ -34,10 +34,31 @@ from playground.common.poly_reference_motion import PolyReferenceMotion
 from playground.common.rewards import (
     reward_tracking_lin_vel,
     reward_tracking_ang_vel,
+    reward_forward_progress,
+    cost_forward_shortfall,
+    cost_forward_overshoot,
+    cost_forward_wrong_direction,
+    cost_orientation,
+    cost_base_height,
+    cost_forward_pitch,
+    cost_forward_pitch_rate,
+    cost_forward_contact_support,
+    reward_forward_single_support,
+    cost_forward_double_support,
+    reward_forward_contact_transition,
+    cost_forward_double_support_dwell,
+    cost_forward_swing_clearance,
+    cost_forward_phase_swing_lift,
+    cost_forward_phase_single_support,
+    cost_forward_swing_balance,
+    cost_forward_swing_advance,
+    cost_forward_swing_target_rate_limit,
     cost_torques,
     cost_action_rate,
+    cost_action_magnitude,
     cost_stand_still,
     reward_alive,
+    pseudo_huber_cost,
 )
 from playground.open_duck_mini_v2.custom_rewards import reward_imitation
 
@@ -84,28 +105,128 @@ def default_config() -> config_dict.ConfigDict:
             velocity_limit_max_rad_s=4.7,
             per_joint_variation=0.15,
         ),
+        soft_prior=config_dict.create(
+            enable=False,
+            joint_indices=[2, 3, 4, 11, 12, 13],
+            action_mean=[],
+            period=50,
+            phase_source="imitation_i",
+            huber_delta=0.05,
+        ),
+        behavior_prior=config_dict.create(
+            enable=False,
+            joint_weights=[],
+            temporal_rate_limit_rad_s=0.0,
+            temporal_rate_limit_joint_indices=[2, 3, 4, 11, 12, 13],
+            obs_mean=[],
+            obs_std=[],
+            weights=[],
+            biases=[],
+            activation="tanh",
+            output_mode="clip",
+            huber_delta=0.05,
+        ),
         reward_config=config_dict.create(
             scales=config_dict.create(
                 tracking_lin_vel=2.5,
                 tracking_ang_vel=6.0,
                 torques=-1.0e-3,
                 action_rate=-0.5,  # was -1.5
+                action_magnitude=0.0,
                 stand_still=-0.2,  # was -1.0 TODO try to relax this a bit ?
                 target_rate=0.0,
                 actuator_tracking=0.0,
+                joint_target_tracking=0.0,
+                push_recovery_actuator_tracking=0.0,
+                soft_prior=0.0,
+                behavior_prior=0.0,
+                forward_progress=0.0,
+                forward_shortfall=0.0,
+                forward_overshoot=0.0,
+                forward_wrong_direction=0.0,
+                command_progress=0.0,
+                command_progress_shortfall=0.0,
+                command_progress_failure=0.0,
+                orientation=0.0,
+                base_height=0.0,
+                forward_pitch=0.0,
+                forward_pitch_rate=0.0,
+                forward_contact_support=0.0,
+                forward_single_support=0.0,
+                forward_double_support=0.0,
+                forward_contact_transition=0.0,
+                forward_double_support_dwell=0.0,
+                forward_swing_clearance=0.0,
+                forward_phase_swing_lift=0.0,
+                forward_phase_single_support=0.0,
+                forward_swing_balance=0.0,
+                forward_swing_advance=0.0,
+                forward_swing_target_rate_limit=0.0,
                 alive=20.0,
                 imitation=1.0,
             ),
             tracking_sigma=0.01,  # was working at 0.01
+            forward_progress_deadband=0.02,
+            forward_shortfall_required_ratio=0.5,
+            forward_overshoot_allowed_ratio=1.5,
+            forward_wrong_direction_allowed_reverse_ratio=0.1,
+            command_progress_required_ratio=0.6,
+            command_progress_warmup_steps=50,
+            command_progress_failure_enable=False,
+            command_progress_failure_min_ratio=0.25,
+            command_progress_failure_warmup_steps=120,
+            reward_clip_min=0.0,
+            reward_clip_max=10000.0,
+            forward_contact_support_no_contact_weight=1.0,
+            forward_contact_support_asymmetry_weight=0.0,
+            forward_contact_transition_min_progress_ratio=0.25,
+            forward_double_support_dwell_grace_steps=10,
+            forward_swing_clearance_target_m=0.03,
+            forward_phase_swing_lift_target_m=0.016,
+            forward_phase_single_support_swing_contact_weight=1.0,
+            forward_phase_single_support_stance_no_contact_weight=2.0,
+            forward_swing_phase_advance_ticks=0,
+            forward_swing_balance_grace_steps=20,
+            forward_swing_advance_target_m=0.005,
+            forward_swing_target_rate_limit_joint_indices=[],
+            forward_swing_target_rate_limit_values=[],
+            push_recovery_tracking_window_steps=25,
+            push_recovery_tracking_joint_indices=[],
+            action_rate_huber_delta=0.0,
+            action_magnitude_huber_delta=0.0,
+            target_rate_huber_delta=0.0,
+            actuator_tracking_huber_delta=0.0,
+            joint_target_tracking_huber_delta=0.0,
+            joint_target_tracking_joint_indices=[2, 3, 4, 11, 12, 13],
+            push_recovery_actuator_tracking_huber_delta=0.0,
+            forward_shortfall_huber_delta=0.0,
+            forward_overshoot_huber_delta=0.0,
+            forward_wrong_direction_huber_delta=0.0,
+            forward_pitch_huber_delta=0.0,
+            forward_pitch_rate_huber_delta=0.0,
+            forward_swing_clearance_huber_delta=0.0,
+            forward_phase_swing_lift_huber_delta=0.0,
+            forward_swing_advance_huber_delta=0.0,
+            forward_swing_target_rate_limit_huber_delta=0.0,
+            command_progress_shortfall_huber_delta=0.0,
         ),
         push_config=config_dict.create(
             enable=True,
             interval_range=[5.0, 10.0],
             magnitude_range=[0.1, 1.0],
         ),
+        reset_config=config_dict.create(
+            base_xy_jitter_m=0.05,
+            yaw_jitter_rad=3.14,
+            actuator_qpos_multiplier_min=0.5,
+            actuator_qpos_multiplier_max=1.5,
+            base_qvel_jitter=0.05,
+        ),
         lin_vel_x=[-0.15, 0.15],
         lin_vel_y=[-0.2, 0.2],
         ang_vel_yaw=[-1.0, 1.0],  # [-1.0, 1.0]
+        command_resample_steps=500,
+        zero_command_probability=0.1,
         neck_pitch_range=[-0.34, 1.1],
         head_pitch_range=[-0.78, 0.78],
         head_yaw_range=[-1.5, 1.5],
@@ -215,15 +336,27 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         #     1 / self._config.ctrl_dt, cutoff_frequency=37.5
         # )
 
+    def _foot_forward_x(self, data: mjx.Data) -> jax.Array:
+        rel_world = data.site_xpos[self._feet_site_id] - data.site_xpos[self._site_id]
+        rel_local = rel_world @ data.site_xmat[self._site_id]
+        return rel_local[..., 0]
+
     def reset(self, rng: jax.Array) -> mjx_env.State:
         qpos = self._init_q  # the complete qpos
         # print(f'DEBUG0 init qpos: {qpos}')
         qvel = jp.zeros(self.mjx_model.nv)
 
         # init position/orientation in environment
-        # x=+U(-0.05, 0.05), y=+U(-0.05, 0.05), yaw=U(-3.14, 3.14).
+        # Defaults preserve the original broad reset. Runner flags can set
+        # these scales to zero for a grounded-home start contract.
+        reset_cfg = self._config.reset_config
         rng, key = jax.random.split(rng)
-        dxy = jax.random.uniform(key, (2,), minval=-0.05, maxval=0.05)
+        dxy = jax.random.uniform(
+            key,
+            (2,),
+            minval=-reset_cfg.base_xy_jitter_m,
+            maxval=reset_cfg.base_xy_jitter_m,
+        )
 
         # floating base
         base_qpos = self.get_floating_base_qpos(qpos)
@@ -233,7 +366,12 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         )  # x y noise
 
         rng, key = jax.random.split(rng)
-        yaw = jax.random.uniform(key, (1,), minval=-3.14, maxval=3.14)
+        yaw = jax.random.uniform(
+            key,
+            (1,),
+            minval=-reset_cfg.yaw_jitter_rad,
+            maxval=reset_cfg.yaw_jitter_rad,
+        )
         quat = math.axis_angle_to_quat(jp.array([0, 0, 1]), yaw)
         new_quat = math.quat_mul(
             qpos[self._floating_base_qpos_addr + 3 : self._floating_base_qpos_addr + 7],
@@ -250,7 +388,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
 
         # multiply actual joints with noise (excluding floating base and backlash)
         qpos_j = self.get_actuator_joints_qpos(qpos) * jax.random.uniform(
-            key, (self._actuators,), minval=0.5, maxval=1.5
+            key,
+            (self._actuators,),
+            minval=reset_cfg.actuator_qpos_multiplier_min,
+            maxval=reset_cfg.actuator_qpos_multiplier_max,
         )
         qpos = self.set_actuator_joints_qpos(qpos_j, qpos)
         # print(f'DEBUG2 joint qpos: {qpos}')
@@ -262,12 +403,20 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         # )
 
         qvel = self.set_floating_base_qvel(
-            jax.random.uniform(key, (6,), minval=-0.05, maxval=0.05), qvel
+            jax.random.uniform(
+                key,
+                (6,),
+                minval=-reset_cfg.base_qvel_jitter,
+                maxval=reset_cfg.base_qvel_jitter,
+            ),
+            qvel,
         )
         # print(f'DEBUG3 base qvel: {qvel}')
         ctrl = self.get_actuator_joints_qpos(qpos)
         # print(f'DEBUG4 ctrl: {ctrl}')
         data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=ctrl)
+        initial_foot_z = data.site_xpos[self._feet_site_id][..., -1]
+        initial_foot_forward_x = self._foot_forward_x(data)
         rng, cmd_rng = jax.random.split(rng)
         cmd = self.sample_command(cmd_rng)
 
@@ -309,10 +458,34 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "actuator_bridge_tau_s": bridge_tau_s,
             "actuator_bridge_velocity_limit_rad_s": bridge_velocity_limit_rad_s,
             "actuator_bridge_tracking_cost": jp.zeros(()),
+            "joint_target_tracking_cost": jp.zeros(()),
+            "push_recovery_actuator_tracking_cost": jp.zeros(()),
+            "push_recovery_steps": jp.zeros((), dtype=jp.int32),
             "target_velocity_cost": jp.zeros(()),
+            "target_velocity": jp.zeros(self.mjx_model.nu),
+            "forward_swing_target_rate_limit_cost": jp.zeros(()),
+            "forward_phase_swing_lift_cost": jp.zeros(()),
+            "forward_phase_single_support_cost": jp.zeros(()),
+            "soft_prior_cost": jp.zeros(()),
+            "soft_prior_phase": jp.zeros((), dtype=jp.int32),
+            "behavior_prior_cost": jp.zeros(()),
+            "behavior_prior_obs": jp.zeros(101),
+            "behavior_prior_teacher_action": jp.zeros(self.mjx_model.nu),
+            "behavior_prior_teacher_initialized": jp.zeros((), dtype=jp.bool_),
+            "command_progress_distance": jp.zeros(()),
+            "command_progress_steps": jp.zeros((), dtype=jp.int32),
+            "command_progress_ratio": jp.zeros(()),
+            "command_progress_shortfall_cost": jp.zeros(()),
+            "command_progress_failure": jp.zeros(()),
+            "forward_double_support_steps": jp.zeros((), dtype=jp.int32),
             "feet_air_time": jp.zeros(2),
             "last_contact": jp.zeros(2, dtype=bool),
             "swing_peak": jp.zeros(2),
+            "foot_stance_height": initial_foot_z,
+            "foot_stance_forward_x": initial_foot_forward_x,
+            "swing_peak_lift": jp.zeros(2),
+            "swing_peak_forward_advance": jp.zeros(2),
+            "forward_swing_steps": jp.zeros(2, dtype=jp.int32),
             # Push related.
             "push": jp.array([0.0, 0.0]),
             "push_step": 0,
@@ -338,9 +511,25 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         metrics["swing_peak"] = jp.zeros(())
         metrics["diagnostic/target_velocity_cost"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_tracking_cost"] = jp.zeros(())
+        metrics["diagnostic/joint_target_tracking_cost"] = jp.zeros(())
+        metrics["diagnostic/push_recovery_actuator_tracking_cost"] = jp.zeros(())
+        metrics["diagnostic/push_recovery_steps"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_delay_ticks"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_tau_mean_s"] = jp.zeros(())
         metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.zeros(())
+        metrics["diagnostic/soft_prior_cost"] = jp.zeros(())
+        metrics["diagnostic/soft_prior_phase"] = jp.zeros(())
+        metrics["diagnostic/behavior_prior_cost"] = jp.zeros(())
+        metrics["diagnostic/command_progress_ratio"] = jp.zeros(())
+        metrics["diagnostic/command_progress_shortfall_cost"] = jp.zeros(())
+        metrics["diagnostic/command_progress_failure"] = jp.zeros(())
+        metrics["diagnostic/forward_double_support_steps"] = jp.zeros(())
+        metrics["diagnostic/forward_phase_swing_lift_cost"] = jp.zeros(())
+        metrics["diagnostic/forward_phase_single_support_cost"] = jp.zeros(())
+        metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.zeros(())
+        metrics["diagnostic/swing_peak_lift"] = jp.zeros(())
+        metrics["diagnostic/swing_peak_forward_advance"] = jp.zeros(())
+        metrics["diagnostic/forward_swing_imbalance"] = jp.zeros(())
 
         contact = jp.array(
             [
@@ -436,7 +625,68 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         info["actuator_bridge_applied_targets"] = applied_target
         return applied_target, info
 
+    def _update_command_window_progress(
+        self, info: dict[str, Any], data: mjx.Data
+    ) -> None:
+        """Track cumulative signed forward progress over the current command."""
+        command_x = info["command"][0]
+        local_vx = self.get_local_linvel(data)[0]
+        signed_vx = local_vx * jp.sign(command_x)
+        info["command_progress_distance"] += signed_vx * self.dt
+        info["command_progress_steps"] += 1
+
+        elapsed_s = jp.maximum(
+            info["command_progress_steps"].astype(jp.float32) * self.dt,
+            self.dt,
+        )
+        target_distance = jp.maximum(jp.abs(command_x) * elapsed_s, 1.0e-6)
+        progress_ratio = info["command_progress_distance"] / target_distance
+
+        needs_progress = (
+            jp.abs(command_x) > self._config.reward_config.forward_progress_deadband
+        )
+        warm_enough = (
+            info["command_progress_steps"]
+            >= self._config.reward_config.command_progress_warmup_steps
+        )
+        required_distance = (
+            target_distance * self._config.reward_config.command_progress_required_ratio
+        )
+        shortfall = jp.clip(
+            required_distance - info["command_progress_distance"], 0.0, None
+        )
+        normalized_shortfall = shortfall / target_distance
+
+        info["command_progress_ratio"] = jp.nan_to_num(
+            jp.where(needs_progress, progress_ratio, 0.0)
+        )
+        info["command_progress_shortfall_cost"] = jp.nan_to_num(
+            jp.where(
+                needs_progress & warm_enough,
+                pseudo_huber_cost(
+                    normalized_shortfall,
+                    self._config.reward_config.command_progress_shortfall_huber_delta,
+                ),
+                0.0,
+            )
+        )
+
+    def _get_command_progress_failure(self, info: dict[str, Any]) -> jax.Array:
+        """Default-off termination for positive-command no-progress episodes."""
+        cfg = self._config.reward_config
+        command_x = info["command"][0]
+        enabled = jp.asarray(cfg.command_progress_failure_enable)
+        needs_progress = jp.abs(command_x) > cfg.forward_progress_deadband
+        warm_enough = (
+            info["command_progress_steps"] >= cfg.command_progress_failure_warmup_steps
+        )
+        below_floor = (
+            info["command_progress_ratio"] < cfg.command_progress_failure_min_ratio
+        )
+        return enabled & needs_progress & warm_enough & below_floor
+
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
+        state.info["behavior_prior_obs"] = state.obs["state"]
 
         if USE_IMITATION_REWARD:
             state.info["imitation_i"] += 1
@@ -505,6 +755,7 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             jp.mod(state.info["push_step"] + 1, state.info["push_interval_steps"]) == 0
         )
         push *= self._config.push_config.enable
+        push_active = jp.linalg.norm(push) > 0.0
         qvel = state.data.qvel
         qvel = qvel.at[
             self._floating_base_qvel_addr : self._floating_base_qvel_addr + 2
@@ -542,14 +793,58 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             applied_motor_targets, _ = self._apply_actuator_bridge(
                 state.info, sent_motor_targets
             )
-        state.info["target_velocity_cost"] = jp.mean(jp.square(target_velocity))
+        state.info["target_velocity_cost"] = jp.mean(
+            pseudo_huber_cost(
+                target_velocity, self._config.reward_config.target_rate_huber_delta
+            )
+        )
+        state.info["target_velocity"] = target_velocity
         state.info["actuator_bridge_tracking_cost"] = jp.mean(
-            jp.square(sent_motor_targets - applied_motor_targets)
+            pseudo_huber_cost(
+                sent_motor_targets - applied_motor_targets,
+                self._config.reward_config.actuator_tracking_huber_delta,
+            )
+        )
+        recovery_steps = jp.where(
+            push_active,
+            self._config.reward_config.push_recovery_tracking_window_steps,
+            jp.maximum(state.info["push_recovery_steps"] - 1, 0),
+        )
+        bridge_tracking_cost = pseudo_huber_cost(
+            sent_motor_targets - applied_motor_targets,
+            self._config.reward_config.push_recovery_actuator_tracking_huber_delta,
+        )
+        if self._config.reward_config.push_recovery_tracking_joint_indices:
+            joint_indices = jp.array(
+                self._config.reward_config.push_recovery_tracking_joint_indices,
+                dtype=jp.int32,
+            )
+            push_recovery_tracking_cost = jp.mean(bridge_tracking_cost[joint_indices])
+        else:
+            push_recovery_tracking_cost = jp.mean(bridge_tracking_cost)
+        state.info["push_recovery_steps"] = recovery_steps
+        state.info["push_recovery_actuator_tracking_cost"] = jp.where(
+            recovery_steps > 0,
+            push_recovery_tracking_cost,
+            0.0,
         )
         data = mjx_env.step(
             self.mjx_model, state.data, applied_motor_targets, self.n_substeps
         )
+        state.info["joint_target_tracking_cost"] = jp.mean(
+            pseudo_huber_cost(
+                jp.take(
+                    sent_motor_targets - self.get_actuator_joints_qpos(data.qpos),
+                    jp.asarray(
+                        self._config.reward_config.joint_target_tracking_joint_indices,
+                        dtype=jp.int32,
+                    ),
+                ),
+                self._config.reward_config.joint_target_tracking_huber_delta,
+            )
+        )
 
+        self._update_command_window_progress(state.info, data)
         state.info["motor_targets"] = sent_motor_targets
 
         contact = jp.array(
@@ -558,15 +853,72 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 for geom_id in self._feet_geom_id
             ]
         )
+        needs_forward_progress = (
+            jp.abs(state.info["command"][0])
+            > self._config.reward_config.forward_progress_deadband
+        )
+        double_support = jp.sum(contact.astype(jp.float32)) > 1.5
+        state.info["forward_double_support_steps"] = jp.where(
+            needs_forward_progress & double_support,
+            state.info["forward_double_support_steps"] + 1,
+            0,
+        )
+        state.info["forward_swing_steps"] += jp.where(
+            needs_forward_progress,
+            (~contact).astype(jp.int32),
+            jp.zeros(2, dtype=jp.int32),
+        )
         contact_filt = contact | state.info["last_contact"]
         first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt
         state.info["feet_air_time"] += self.dt
         p_f = data.site_xpos[self._feet_site_id]
         p_fz = p_f[..., -1]
+        p_fx = self._foot_forward_x(data)
         state.info["swing_peak"] = jp.maximum(state.info["swing_peak"], p_fz)
+        swing_lift = jp.clip(p_fz - state.info["foot_stance_height"], 0.0, None)
+        phase_swing_mask = self._get_phase_foot_swing_mask(state.info)
+        state.info["forward_phase_swing_lift_cost"] = (
+            cost_forward_phase_swing_lift(
+                state.info["command"],
+                swing_lift,
+                phase_swing_mask,
+                self._config.reward_config.forward_phase_swing_lift_target_m,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_phase_swing_lift_huber_delta,
+            )
+        )
+        state.info["forward_phase_single_support_cost"] = (
+            cost_forward_phase_single_support(
+                state.info["command"],
+                contact,
+                phase_swing_mask,
+                self._config.reward_config.forward_phase_single_support_swing_contact_weight,
+                self._config.reward_config.forward_phase_single_support_stance_no_contact_weight,
+                self._config.reward_config.forward_progress_deadband,
+            )
+        )
+        state.info["swing_peak_lift"] = jp.maximum(
+            state.info["swing_peak_lift"],
+            jp.where(contact, 0.0, swing_lift),
+        )
+        swing_advance = jp.clip(
+            (p_fx - state.info["foot_stance_forward_x"])
+            * jp.sign(state.info["command"][0]),
+            0.0,
+            None,
+        )
+        state.info["swing_peak_forward_advance"] = jp.maximum(
+            state.info["swing_peak_forward_advance"],
+            jp.where(contact, 0.0, swing_advance),
+        )
 
         obs = self._get_obs(data, state.info, contact)
         done = self._get_termination(data)
+        command_progress_failure = self._get_command_progress_failure(state.info)
+        state.info["command_progress_failure"] = command_progress_failure.astype(
+            state.info["command_progress_ratio"].dtype
+        )
+        done = done | command_progress_failure
 
         rewards = self._get_reward(
             data, action, state.info, state.metrics, done, first_contact, contact
@@ -575,7 +927,11 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         rewards = {
             k: v * self._config.reward_config.scales[k] for k, v in rewards.items()
         }
-        reward = jp.clip(sum(rewards.values()) * self.dt, 0.0, 10000.0)
+        reward = jp.clip(
+            sum(rewards.values()) * self.dt,
+            self._config.reward_config.reward_clip_min,
+            self._config.reward_config.reward_clip_max,
+        )
         # jax.debug.print('STEP REWARD: {}',reward)
         state.info["push"] = push
         state.info["step"] += 1
@@ -585,19 +941,50 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.info["last_act"] = action  # was
         # state.info["last_act"] = motor_targets  # became
         state.info["rng"], cmd_rng = jax.random.split(state.info["rng"])
+        reset_command_window = done | (
+            state.info["step"] > self._config.command_resample_steps
+        )
         state.info["command"] = jp.where(
-            state.info["step"] > 500,
+            reset_command_window,
             self.sample_command(cmd_rng),
             state.info["command"],
         )
         state.info["step"] = jp.where(
-            done | (state.info["step"] > 500),
+            reset_command_window,
             0,
             state.info["step"],
+        )
+        state.info["command_progress_distance"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_distance"]
+        )
+        state.info["command_progress_steps"] = jp.where(
+            reset_command_window, 0, state.info["command_progress_steps"]
+        )
+        state.info["command_progress_ratio"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_ratio"]
+        )
+        state.info["command_progress_shortfall_cost"] = jp.where(
+            reset_command_window, 0.0, state.info["command_progress_shortfall_cost"]
+        )
+        state.info["forward_double_support_steps"] = jp.where(
+            reset_command_window, 0, state.info["forward_double_support_steps"]
+        )
+        state.info["forward_swing_steps"] = jp.where(
+            reset_command_window,
+            jp.zeros(2, dtype=jp.int32),
+            state.info["forward_swing_steps"],
         )
         state.info["feet_air_time"] *= ~contact
         state.info["last_contact"] = contact
         state.info["swing_peak"] *= ~contact
+        state.info["foot_stance_height"] = jp.where(
+            contact, p_fz, state.info["foot_stance_height"]
+        )
+        state.info["foot_stance_forward_x"] = jp.where(
+            contact, p_fx, state.info["foot_stance_forward_x"]
+        )
+        state.info["swing_peak_lift"] *= ~contact
+        state.info["swing_peak_forward_advance"] *= ~contact
         for k, v in rewards.items():
             rew_scale = self._config.reward_config.scales[k]
             if rew_scale != 0:
@@ -612,6 +999,15 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/actuator_bridge_tracking_cost"] = state.info[
             "actuator_bridge_tracking_cost"
         ]
+        state.metrics["diagnostic/joint_target_tracking_cost"] = state.info[
+            "joint_target_tracking_cost"
+        ]
+        state.metrics["diagnostic/push_recovery_actuator_tracking_cost"] = state.info[
+            "push_recovery_actuator_tracking_cost"
+        ]
+        state.metrics["diagnostic/push_recovery_steps"] = state.info[
+            "push_recovery_steps"
+        ].astype(reward.dtype)
         state.metrics["diagnostic/actuator_bridge_delay_ticks"] = state.info[
             "actuator_bridge_delay_ticks"
         ].astype(reward.dtype)
@@ -621,6 +1017,45 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
         state.metrics["diagnostic/actuator_bridge_velocity_limit_mean_rad_s"] = jp.mean(
             state.info["actuator_bridge_velocity_limit_rad_s"]
         )
+        state.metrics["diagnostic/soft_prior_cost"] = state.info["soft_prior_cost"]
+        state.metrics["diagnostic/soft_prior_phase"] = state.info[
+            "soft_prior_phase"
+        ].astype(reward.dtype)
+        state.metrics["diagnostic/behavior_prior_cost"] = state.info[
+            "behavior_prior_cost"
+        ]
+        state.metrics["diagnostic/command_progress_ratio"] = state.info[
+            "command_progress_ratio"
+        ]
+        state.metrics["diagnostic/command_progress_shortfall_cost"] = state.info[
+            "command_progress_shortfall_cost"
+        ]
+        state.metrics["diagnostic/command_progress_failure"] = (
+            command_progress_failure.astype(reward.dtype)
+        )
+        state.metrics["diagnostic/forward_double_support_steps"] = state.info[
+            "forward_double_support_steps"
+        ].astype(reward.dtype)
+        state.metrics["diagnostic/forward_phase_swing_lift_cost"] = state.info[
+            "forward_phase_swing_lift_cost"
+        ]
+        state.metrics["diagnostic/forward_phase_single_support_cost"] = state.info[
+            "forward_phase_single_support_cost"
+        ]
+        state.metrics["diagnostic/forward_swing_phase_advance_ticks"] = jp.asarray(
+            self._config.reward_config.forward_swing_phase_advance_ticks,
+            dtype=reward.dtype,
+        )
+        state.metrics["diagnostic/swing_peak_lift"] = jp.mean(
+            state.info["swing_peak_lift"]
+        )
+        state.metrics["diagnostic/swing_peak_forward_advance"] = jp.mean(
+            state.info["swing_peak_forward_advance"]
+        )
+        swing_steps = state.info["forward_swing_steps"].astype(jp.float32)
+        state.metrics["diagnostic/forward_swing_imbalance"] = jp.abs(
+            swing_steps[0] - swing_steps[1]
+        ) / jp.maximum(jp.sum(swing_steps), 1.0)
 
         done = done.astype(reward.dtype)
         state = state.replace(data=data, obs=obs, reward=reward, done=done)
@@ -765,6 +1200,123 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             "privileged_state": privileged_state,
         }
 
+
+    def _get_soft_prior_cost(
+        self, action: jax.Array, info: dict[str, Any]
+    ) -> tuple[jax.Array, jax.Array]:
+        """Return default-off pitch-chain soft-prior cost and phase index."""
+        cfg = self._config.soft_prior
+        if not cfg.enable or len(cfg.action_mean) == 0:
+            return jp.zeros(()), jp.zeros((), dtype=jp.int32)
+
+        action_mean = jp.asarray(cfg.action_mean, dtype=action.dtype)
+        joint_indices = jp.asarray(cfg.joint_indices, dtype=jp.int32)
+        period = action_mean.shape[0]
+        if cfg.phase_source == "step":
+            phase = jp.mod(info["step"], period).astype(jp.int32)
+        else:
+            phase = jp.mod(info["imitation_i"], period).astype(jp.int32)
+        prior_action = action_mean[phase]
+        action_subset = jp.take(action, joint_indices)
+        cost = jp.mean(pseudo_huber_cost(action_subset - prior_action, cfg.huber_delta))
+        return cost, phase
+
+    def _behavior_prior_forward(self, obs_state: jax.Array) -> jax.Array:
+        """Return a frozen MLP teacher action for the current policy observation."""
+        cfg = self._config.behavior_prior
+        mean = jp.asarray(cfg.obs_mean, dtype=obs_state.dtype)
+        std = jp.maximum(jp.asarray(cfg.obs_std, dtype=obs_state.dtype), 1.0e-6)
+        z = (obs_state - mean) / std
+        weights = [jp.asarray(weight, dtype=obs_state.dtype) for weight in cfg.weights]
+        biases = [jp.asarray(bias, dtype=obs_state.dtype) for bias in cfg.biases]
+        for index, (weight, bias) in enumerate(zip(weights, biases)):
+            z = z @ weight + bias
+            if index < len(weights) - 1:
+                if cfg.activation == "swish":
+                    z = z * jax.nn.sigmoid(z)
+                else:
+                    z = jp.tanh(z)
+        if cfg.output_mode == "ppo_tanh_loc":
+            return jp.tanh(z)
+        return jp.clip(z, -1.0, 1.0)
+
+    def _get_behavior_prior_cost(
+        self, action: jax.Array, info: dict[str, Any]
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        """Return default-off state-conditioned teacher-action cost."""
+        cfg = self._config.behavior_prior
+        if not cfg.enable or len(cfg.weights) == 0:
+            return (
+                jp.zeros(()),
+                info["behavior_prior_teacher_action"],
+                info["behavior_prior_teacher_initialized"],
+            )
+        teacher_action = self._behavior_prior_forward(info["behavior_prior_obs"])
+        if cfg.temporal_rate_limit_rad_s > 0:
+            max_delta = (
+                cfg.temporal_rate_limit_rad_s * self.dt / self._config.action_scale
+            )
+            indices = jp.asarray(
+                cfg.temporal_rate_limit_joint_indices, dtype=jp.int32
+            )
+            previous = info["behavior_prior_teacher_action"]
+            bounded = teacher_action.at[indices].set(
+                jp.clip(
+                    jp.take(teacher_action, indices),
+                    jp.take(previous, indices) - max_delta,
+                    jp.take(previous, indices) + max_delta,
+                )
+            )
+            teacher_action = jp.where(
+                info["behavior_prior_teacher_initialized"], bounded, teacher_action
+            )
+        per_joint_cost = pseudo_huber_cost(action - teacher_action, cfg.huber_delta)
+        if len(cfg.joint_weights) == 0:
+            cost = jp.mean(per_joint_cost)
+        else:
+            joint_weights = jp.asarray(cfg.joint_weights, dtype=action.dtype)
+            weight_sum = jp.maximum(jp.sum(joint_weights), 1.0e-6)
+            cost = jp.sum(per_joint_cost * joint_weights) / weight_sum
+        return cost, teacher_action, jp.ones((), dtype=jp.bool_)
+
+    def _get_forward_swing_target_rate_limit_cost(
+        self, info: dict[str, Any]
+    ) -> jax.Array:
+        """Return default-off phase-swing target-rate excess cost."""
+        cfg = self._config.reward_config
+        joint_indices_cfg = cfg.forward_swing_target_rate_limit_joint_indices
+        limits_cfg = cfg.forward_swing_target_rate_limit_values
+        if len(joint_indices_cfg) == 0 or len(limits_cfg) == 0:
+            return jp.zeros(())
+        joint_indices = jp.asarray(joint_indices_cfg, dtype=jp.int32)
+        velocity_limits = jp.asarray(limits_cfg, dtype=info["target_velocity"].dtype)
+        if velocity_limits.shape[0] != joint_indices.shape[0]:
+            return jp.zeros(())
+        foot_swing_mask = self._get_phase_foot_swing_mask(info)
+        swing_mask = jp.zeros(self.mjx_model.nu, dtype=jp.bool_)
+        swing_mask = swing_mask.at[2:5].set(foot_swing_mask[0])
+        swing_mask = swing_mask.at[11:14].set(foot_swing_mask[1])
+        return cost_forward_swing_target_rate_limit(
+            info["command"],
+            info["target_velocity"],
+            swing_mask,
+            joint_indices,
+            velocity_limits,
+            cfg.forward_progress_deadband,
+            cfg.forward_swing_target_rate_limit_huber_delta,
+        )
+
+    def _get_phase_foot_swing_mask(self, info: dict[str, Any]) -> jax.Array:
+        period = jp.asarray(self.PRM.nb_steps_in_period, dtype=jp.float32)
+        advance_ticks = jp.asarray(
+            self._config.reward_config.forward_swing_phase_advance_ticks,
+            dtype=jp.float32,
+        )
+        phase_i = jp.mod(jp.asarray(info["imitation_i"], dtype=jp.float32) + advance_ticks, period)
+        phase01 = phase_i / period
+        right_swing = phase01 < 0.5
+        return jp.array([~right_swing, right_swing])
+
     def _get_reward(
         self,
         data: mjx.Data,
@@ -777,6 +1329,18 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
     ) -> dict[str, jax.Array]:
         del metrics  # Unused.
 
+        soft_prior_cost, soft_prior_phase = self._get_soft_prior_cost(action, info)
+        info["soft_prior_cost"] = soft_prior_cost
+        info["soft_prior_phase"] = soft_prior_phase
+        (
+            info["behavior_prior_cost"],
+            info["behavior_prior_teacher_action"],
+            info["behavior_prior_teacher_initialized"],
+        ) = self._get_behavior_prior_cost(action, info)
+        info["forward_swing_target_rate_limit_cost"] = (
+            self._get_forward_swing_target_rate_limit_cost(info)
+        )
+
         ret = {
             "tracking_lin_vel": reward_tracking_lin_vel(
                 info["command"],
@@ -788,11 +1352,128 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
                 self.get_gyro(data),
                 self._config.reward_config.tracking_sigma,
             ),
-            # "orientation": cost_orientation(self.get_gravity(data)),
+            "forward_progress": reward_forward_progress(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_shortfall": cost_forward_shortfall(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_shortfall_required_ratio,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_shortfall_huber_delta,
+            ),
+            "forward_overshoot": cost_forward_overshoot(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_overshoot_allowed_ratio,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_overshoot_huber_delta,
+            ),
+            "forward_wrong_direction": cost_forward_wrong_direction(
+                info["command"],
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_wrong_direction_allowed_reverse_ratio,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_wrong_direction_huber_delta,
+            ),
+            "command_progress": info["command_progress_ratio"],
+            "command_progress_shortfall": info["command_progress_shortfall_cost"],
+            "command_progress_failure": info["command_progress_failure"],
+            "orientation": cost_orientation(self.get_gravity(data)),
+            "base_height": cost_base_height(
+                data.qpos[self._floating_base_qpos_addr + 2],
+                self._init_q[self._floating_base_qpos_addr + 2],
+            ),
+            "forward_pitch": cost_forward_pitch(
+                info["command"],
+                self.get_gravity(data),
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_pitch_huber_delta,
+            ),
+            "forward_pitch_rate": cost_forward_pitch_rate(
+                info["command"],
+                self.get_gyro(data),
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_pitch_rate_huber_delta,
+            ),
+            "forward_contact_support": cost_forward_contact_support(
+                info["command"],
+                contact,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_contact_support_no_contact_weight,
+                self._config.reward_config.forward_contact_support_asymmetry_weight,
+            ),
+            "forward_single_support": reward_forward_single_support(
+                info["command"],
+                contact,
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_double_support": cost_forward_double_support(
+                info["command"],
+                contact,
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_contact_transition": reward_forward_contact_transition(
+                info["command"],
+                first_contact,
+                self.get_local_linvel(data),
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_contact_transition_min_progress_ratio,
+            ),
+            "forward_double_support_dwell": cost_forward_double_support_dwell(
+                info["command"],
+                info["forward_double_support_steps"],
+                self._config.reward_config.forward_double_support_dwell_grace_steps,
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_swing_clearance": cost_forward_swing_clearance(
+                info["command"],
+                info["swing_peak_lift"],
+                first_contact,
+                self._config.reward_config.forward_swing_clearance_target_m,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_swing_clearance_huber_delta,
+            ),
+            "forward_phase_swing_lift": info["forward_phase_swing_lift_cost"],
+            "forward_phase_single_support": info[
+                "forward_phase_single_support_cost"
+            ],
+            "forward_swing_balance": cost_forward_swing_balance(
+                info["command"],
+                info["forward_swing_steps"],
+                self._config.reward_config.forward_swing_balance_grace_steps,
+                self._config.reward_config.forward_progress_deadband,
+            ),
+            "forward_swing_advance": cost_forward_swing_advance(
+                info["command"],
+                info["swing_peak_forward_advance"],
+                first_contact,
+                self._config.reward_config.forward_swing_advance_target_m,
+                self._config.reward_config.forward_progress_deadband,
+                self._config.reward_config.forward_swing_advance_huber_delta,
+            ),
+            "forward_swing_target_rate_limit": info[
+                "forward_swing_target_rate_limit_cost"
+            ],
             "torques": cost_torques(data.actuator_force),
-            "action_rate": cost_action_rate(action, info["last_act"]),
+            "action_rate": cost_action_rate(
+                action,
+                info["last_act"],
+                self._config.reward_config.action_rate_huber_delta,
+            ),
+            "action_magnitude": cost_action_magnitude(
+                action, self._config.reward_config.action_magnitude_huber_delta
+            ),
             "target_rate": info["target_velocity_cost"],
             "actuator_tracking": info["actuator_bridge_tracking_cost"],
+            "joint_target_tracking": info["joint_target_tracking_cost"],
+            "push_recovery_actuator_tracking": info[
+                "push_recovery_actuator_tracking_cost"
+            ],
+            "soft_prior": info["soft_prior_cost"],
+            "behavior_prior": info["behavior_prior_cost"],
             "alive": reward_alive(),
             "imitation": reward_imitation(  # FIXME, this reward is so adhoc...
                 self.get_floating_base_qpos(data.qpos),  # floating base qpos
@@ -855,9 +1536,10 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
             maxval=self._config.head_roll_range[1] * self._config.head_range_factor,
         )
 
-        # With 10% chance, set everything to zero.
+        # Keep the historical 10% zero-command curriculum by default, but let
+        # bridge experiments disable it without changing normal training.
         return jp.where(
-            jax.random.bernoulli(rng4, p=0.1),
+            jax.random.bernoulli(rng4, p=self._config.zero_command_probability),
             jp.zeros(7),
             jp.hstack(
                 [

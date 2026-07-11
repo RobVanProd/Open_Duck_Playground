@@ -12,13 +12,20 @@ from flax.training import orbax_utils
 from tensorboardX import SummaryWriter
 
 import os
-from brax.training.agents.ppo import networks as ppo_networks, train as ppo
+from brax.training.agents.ppo import (
+    checkpoint as ppo_checkpoint,
+    losses as ppo_losses,
+    networks as ppo_networks,
+    train as ppo,
+)
+import jax.numpy as jnp
 from mujoco_playground import wrapper
 from mujoco_playground.config import locomotion_params
 from orbax import checkpoint as ocp
 import jax
 
 from playground.common.export_onnx import export_onnx
+from playground.common.phase_modulated_ppo import make_phase_modulated_ppo_networks
 
 
 class BaseRunner(ABC):
@@ -43,15 +50,21 @@ class BaseRunner(ABC):
         self.restore_checkpoint_path = None
         
         # CACHE STUFF
-        os.makedirs(".tmp", exist_ok=True)
-        jax.config.update("jax_compilation_cache_dir", ".tmp/jax_cache")
+        cache_dir = Path(os.environ.get("JAX_COMPILATION_CACHE_DIR", ".tmp/jax_cache"))
+        if not cache_dir.is_absolute():
+            cache_dir = (Path.cwd() / cache_dir).resolve()
+        (
+            cache_dir
+            / "xla_gpu_per_fusion_autotune_cache_dir"
+        ).mkdir(parents=True, exist_ok=True)
+        jax.config.update("jax_compilation_cache_dir", str(cache_dir))
         jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
         jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
         jax.config.update(
             "jax_persistent_cache_enable_xla_caches",
             "xla_gpu_per_fusion_autotune_cache_dir",
         )
-        os.environ["JAX_COMPILATION_CACHE_DIR"] = ".tmp/jax_cache"
+        os.environ["JAX_COMPILATION_CACHE_DIR"] = str(cache_dir)
 
     def progress_callback(self, num_steps: int, metrics: dict) -> None:
 
@@ -67,6 +80,13 @@ class BaseRunner(ABC):
 
     def policy_params_fn(self, current_step, make_policy, params):
         # save checkpoints
+        export_min_step = getattr(self.args, "export_min_step", 0)
+        if current_step < export_min_step:
+            print(
+                f"Skipping checkpoint/export at step {current_step}; "
+                f"export_min_step={export_min_step}"
+            )
+            return
 
         orbax_checkpointer = ocp.PyTreeCheckpointer()
         save_args = orbax_utils.save_args_from_target(params)
@@ -83,6 +103,73 @@ class BaseRunner(ABC):
             output_path=onnx_export_path
         )
 
+    def maybe_patch_restore_policy_kl_loss(self) -> None:
+        """Optionally add a PPO loss term that anchors to restored policy logits."""
+        scale = getattr(self.args, "restore_policy_kl_scale", None)
+        if scale is None or scale <= 0:
+            return
+        if self.restore_checkpoint_path is None:
+            raise ValueError(
+                "--restore_policy_kl_scale requires --restore_checkpoint_path"
+            )
+
+        teacher_normalizer, teacher_policy_params, _ = ppo_checkpoint.load(
+            self.restore_checkpoint_path
+        )
+        original_compute_ppo_loss = ppo_losses.compute_ppo_loss
+
+        def compute_ppo_loss_with_restore_kl(
+            params,
+            normalizer_params,
+            data,
+            rng,
+            ppo_network,
+            *args,
+            **kwargs,
+        ):
+            total_loss, metrics = original_compute_ppo_loss(
+                params,
+                normalizer_params,
+                data,
+                rng,
+                ppo_network,
+                *args,
+                **kwargs,
+            )
+            data_t = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
+            policy_apply = ppo_network.policy_network.apply
+            dist = ppo_network.parametric_action_distribution
+            current_logits = policy_apply(
+                normalizer_params, params.policy, data_t.observation
+            )
+            teacher_logits = jax.lax.stop_gradient(
+                policy_apply(
+                    teacher_normalizer, teacher_policy_params, data_t.observation
+                )
+            )
+            current_dist = dist.create_dist(current_logits)
+            teacher_dist = dist.create_dist(teacher_logits)
+            if hasattr(current_dist, "kl_divergence"):
+                restore_policy_kl = jnp.mean(
+                    current_dist.kl_divergence(teacher_dist)
+                )
+            else:
+                restore_policy_kl = jnp.array(0.0)
+            restore_policy_kl_loss = scale * restore_policy_kl
+            total_loss = total_loss + restore_policy_kl_loss
+            metrics = {
+                **metrics,
+                "restore_policy_kl": restore_policy_kl,
+                "restore_policy_kl_loss": restore_policy_kl_loss,
+            }
+            return total_loss, metrics
+
+        ppo_losses.compute_ppo_loss = compute_ppo_loss_with_restore_kl
+        print(
+            "Enabled restore-policy KL loss: "
+            f"scale={scale} restore_checkpoint_path={self.restore_checkpoint_path}"
+        )
+
     def train(self) -> None:
         self.ppo_params = locomotion_params.brax_ppo_config(
             "BerkeleyHumanoidJoystickFlatTerrain"
@@ -91,7 +178,64 @@ class BaseRunner(ABC):
         # self.ppo_training_params["num_timesteps"] = 150000000 * 20
         
 
-        if "network_factory" in self.ppo_params:
+        if getattr(self.args, "ppo_policy_network", "mlp") == "phase_modulated":
+            context_indices = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_context_indices", "6,99,100"
+                ).split(",")
+                if item.strip()
+            )
+            context_hidden = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_context_hidden_sizes", "64"
+                ).split(",")
+                if item.strip()
+            )
+            policy_hidden = tuple(
+                int(item.strip())
+                for item in getattr(
+                    self.args, "phase_modulated_policy_hidden_sizes", "512,256"
+                ).split(",")
+                if item.strip()
+            )
+            network_factory = functools.partial(
+                make_phase_modulated_ppo_networks,
+                policy_hidden_layer_sizes=policy_hidden,
+                context_hidden_layer_sizes=context_hidden,
+                context_indices=context_indices,
+                activation=getattr(self.args, "phase_modulated_activation", "swish"),
+                init_scale_logit=getattr(self.args, "phase_modulated_init_scale_logit", -2.0),
+                modulation_scale=getattr(self.args, "phase_modulated_scale", 0.5),
+                value_hidden_layer_sizes=getattr(
+                    self.ppo_params.network_factory,
+                    "value_hidden_layer_sizes",
+                    (256,) * 5,
+                ),
+                distribution_type=getattr(
+                    self.ppo_params.network_factory,
+                    "distribution_type",
+                    "tanh_normal",
+                ),
+            )
+            self.ppo_training_params.pop("network_factory", None)
+            self.ppo_params.network_factory.policy_network_kind = "phase_modulated"
+            self.ppo_params.network_factory.phase_modulated_context_indices = context_indices
+            self.ppo_params.network_factory.phase_modulated_context_hidden_sizes = context_hidden
+            self.ppo_params.network_factory.phase_modulated_policy_hidden_sizes = policy_hidden
+            self.ppo_params.network_factory.phase_modulated_activation = getattr(
+                self.args, "phase_modulated_activation", "swish"
+            )
+            self.ppo_params.network_factory.phase_modulated_scale = getattr(
+                self.args, "phase_modulated_scale", 0.5
+            )
+            print(
+                "Using phase-modulated PPO policy network: "
+                f"hidden={policy_hidden} context_hidden={context_hidden} "
+                f"context_indices={context_indices}"
+            )
+        elif "network_factory" in self.ppo_params:
             network_factory = functools.partial(
                 ppo_networks.make_ppo_networks, **self.ppo_params.network_factory
             )
@@ -109,11 +253,26 @@ class BaseRunner(ABC):
             "num_updates_per_batch": getattr(
                 self.args, "ppo_num_updates_per_batch", None
             ),
+            "learning_rate": getattr(self.args, "ppo_learning_rate", None),
+            "entropy_cost": getattr(self.args, "ppo_entropy_cost", None),
+            "clipping_epsilon": getattr(self.args, "ppo_clipping_epsilon", None),
+            "max_grad_norm": getattr(self.args, "ppo_max_grad_norm", None),
+            "desired_kl": getattr(self.args, "ppo_desired_kl", None),
+            "learning_rate_schedule": getattr(
+                self.args, "ppo_learning_rate_schedule", None
+            ),
+            "learning_rate_schedule_min_lr": getattr(
+                self.args, "ppo_learning_rate_schedule_min_lr", None
+            ),
+            "learning_rate_schedule_max_lr": getattr(
+                self.args, "ppo_learning_rate_schedule_max_lr", None
+            ),
         }
         for key, value in ppo_cli_overrides.items():
             if value is not None:
                 self.ppo_training_params[key] = value
         print(f"PPO params: {self.ppo_training_params}")
+        self.maybe_patch_restore_policy_kl_loss()
 
         train_fn = functools.partial(
             ppo.train,
