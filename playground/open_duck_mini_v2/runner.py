@@ -142,11 +142,28 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.behavior_prior.activation = activation
             config.behavior_prior.output_mode = output_mode
             config.behavior_prior.huber_delta = args.behavior_prior_huber_delta
+            config.behavior_prior.temporal_rate_limit_rad_s = (
+                args.behavior_prior_temporal_rate_limit_rad_s
+            )
+            config.behavior_prior.temporal_rate_limit_joint_indices = (
+                args.behavior_prior_temporal_rate_limit_joint_indices
+            )
+            if args.behavior_prior_joint_weights is not None:
+                if len(args.behavior_prior_joint_weights) != 14:
+                    raise ValueError(
+                        "--behavior_prior_joint_weights requires 14 comma-separated values"
+                    )
+                if any(weight < 0 for weight in args.behavior_prior_joint_weights):
+                    raise ValueError("behavior-prior joint weights must be non-negative")
+                if not any(weight > 0 for weight in args.behavior_prior_joint_weights):
+                    raise ValueError("at least one behavior-prior joint weight must be positive")
+                config.behavior_prior.joint_weights = args.behavior_prior_joint_weights
             config.reward_config.scales.behavior_prior = args.behavior_prior_scale
 
         config.reward_config.scales.target_rate = args.target_rate_scale
         config.reward_config.scales.actuator_tracking = args.actuator_tracking_scale
         reward_scale_overrides = {
+            "joint_target_tracking": args.joint_target_tracking_scale,
             "push_recovery_actuator_tracking": (
                 args.push_recovery_actuator_tracking_scale
             ),
@@ -297,11 +314,21 @@ class OpenDuckMiniV2Runner(BaseRunner):
             config.reward_config.push_recovery_tracking_joint_indices = (
                 push_recovery_joint_indices
             )
+        joint_target_tracking_indices = _parse_int_list(
+            args.joint_target_tracking_joint_indices
+        )
+        if joint_target_tracking_indices is not None:
+            config.reward_config.joint_target_tracking_joint_indices = (
+                joint_target_tracking_indices
+            )
         reward_huber_overrides = {
             "action_rate_huber_delta": args.action_rate_huber_delta,
             "action_magnitude_huber_delta": args.action_magnitude_huber_delta,
             "target_rate_huber_delta": args.target_rate_huber_delta,
             "actuator_tracking_huber_delta": args.actuator_tracking_huber_delta,
+            "joint_target_tracking_huber_delta": (
+                args.joint_target_tracking_huber_delta
+            ),
             "push_recovery_actuator_tracking_huber_delta": (
                 args.push_recovery_actuator_tracking_huber_delta
             ),
@@ -494,6 +521,26 @@ def main() -> None:
     )
     parser.add_argument("--behavior_prior_huber_delta", type=float, default=0.05)
     parser.add_argument(
+        "--behavior_prior_joint_weights",
+        type=_parse_float_list,
+        default=None,
+        help=(
+            "Optional 14-value action-order weighting for the behavior-prior "
+            "cost. Omit to preserve the existing uniform mean."
+        ),
+    )
+    parser.add_argument(
+        "--behavior_prior_temporal_rate_limit_rad_s",
+        type=float,
+        default=0.0,
+        help="Default-off temporal target-rate bound for the frozen behavior teacher.",
+    )
+    parser.add_argument(
+        "--behavior_prior_temporal_rate_limit_joint_indices",
+        type=_parse_int_list,
+        default=[2, 3, 4, 11, 12, 13],
+    )
+    parser.add_argument(
         "--target_rate_scale",
         type=float,
         default=0.0,
@@ -511,6 +558,15 @@ def main() -> None:
             "Scale applied to the sent-vs-applied target cost. Use a negative "
             "value to penalize the cost; positive values reward it. Default "
             "keeps behavior unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--joint_target_tracking_scale",
+        type=float,
+        default=None,
+        help=(
+            "Optional default-off scale for sent-target versus actual actuator "
+            "position tracking cost. Use a negative value to penalize."
         ),
     )
     parser.add_argument(
@@ -706,6 +762,21 @@ def main() -> None:
         help=(
             "Optional pseudo-Huber delta for actuator tracking cost. Default "
             "keeps the existing squared cost."
+        ),
+    )
+    parser.add_argument(
+        "--joint_target_tracking_huber_delta",
+        type=float,
+        default=None,
+        help="Optional pseudo-Huber delta for direct joint-target tracking cost.",
+    )
+    parser.add_argument(
+        "--joint_target_tracking_joint_indices",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated actuator indices for direct joint-target tracking. "
+            "Default is the six pitch-chain joints used by the compact gate."
         ),
     )
     parser.add_argument(
